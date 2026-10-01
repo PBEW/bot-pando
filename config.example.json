@@ -39,7 +39,8 @@
       "description": "ดึงพนักงานที่ชอบมาทำกิจกรรมร่วมกันช่วง Free-time เหมือนได้ออกเดท",
       "pricing": {
         "normal": 69
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "drink_friend",
@@ -113,7 +114,8 @@
       "description": "ออพชั่นเสริมของ Short Date / Bed Room / Karaoke (ต้องตกลงกับพนักงานก่อน)",
       "pricing": {
         "normal": 99
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "short_date_extend",
@@ -124,7 +126,8 @@
       "extend_only": true,
       "pricing": {
         "normal": 30
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "bedroom_extend",
