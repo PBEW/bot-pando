@@ -1,0 +1,228 @@
+{
+  "guild_id": 0,
+  "timezone": "Asia/Bangkok",
+  "shop_name": "Pandora's Night Heaven",
+  "channels": {
+    "admin": 0,
+    "review": 0,
+    "announce": 0,
+    "log": 0
+  },
+  "_comment_roles": "roles.staff ใส่ได้หลาย Role เป็น list | roles.adult_verified = Role ยืนยันอายุ 18+ (ลูกค้าต้องมี Role นี้ถึงจะเปิดบิลที่มีบริการ adult_only ได้ ใส่ 0 = ไม่ตรวจ)",
+  "roles": {
+    "admin": 0,
+    "staff": 0,
+    "on_duty": 0,
+    "adult_verified": 0
+  },
+  "features": {
+    "vip": false
+  },
+  "attendance": {
+    "warn_hours": 12,
+    "auto_close_hours": 16
+  },
+  "payment": {
+    "account_name": "Pandora's Night Heaven",
+    "promptpay": "0xx-xxx-xxxx",
+    "qr_image_url": "",
+    "note": "โอนแล้วส่งภาพสลิปกลับมาที่ DM นี้ได้เลยนะคะ"
+  },
+  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified",
+  "services": [
+    {
+      "key": "short_date",
+      "name": "Short Date",
+      "emoji": "☕",
+      "duration_minutes": 20,
+      "require_room": false,
+      "description": "ดึงพนักงานที่ชอบมาทำกิจกรรมร่วมกันช่วง Free-time เหมือนได้ออกเดท",
+      "pricing": {
+        "normal": 69
+      }
+    },
+    {
+      "key": "drink_friend",
+      "name": "Drink Friend",
+      "emoji": "🥃",
+      "duration_minutes": 10,
+      "require_room": false,
+      "per_unit": true,
+      "unit_label": "shot",
+      "description": "โดเนทค่าเครื่องดื่มให้พนักงานยกแก้วดื่มเป็นเพื่อน (ราคาต่อ shot)",
+      "pricing": {
+        "normal": 50
+      }
+    },
+    {
+      "key": "party_room",
+      "name": "Private Party Room",
+      "emoji": "🎉",
+      "duration_minutes": 40,
+      "require_room": true,
+      "multi_staff": true,
+      "included_staff": 2,
+      "extra_staff_price": 39,
+      "max_staff": 10,
+      "description": "ห้องปาร์ตี้ส่วนตัว รวมพนักงาน 2 คน เพิ่มคนละ 39 บาท (จองล่วงหน้า 2 วัน)",
+      "pricing": {
+        "normal": 149
+      }
+    },
+    {
+      "key": "karaoke",
+      "name": "Karaoke Room",
+      "emoji": "🎤",
+      "duration_minutes": 60,
+      "require_room": true,
+      "description": "ห้องคาราโอเกะส่วนตัว ร้อง/ฟังเพลงกับพนักงานที่ชื่นชอบ",
+      "pricing": {
+        "normal": 109
+      }
+    },
+    {
+      "key": "bedroom",
+      "name": "Bed Room",
+      "emoji": "🛏️",
+      "duration_minutes": 40,
+      "require_room": true,
+      "description": "ห้องนอนโรงแรมพร้อมพนักงานเคียงคู่",
+      "pricing": {
+        "normal": 99
+      }
+    },
+    {
+      "key": "erotic",
+      "name": "Erotic Service",
+      "emoji": "🔞",
+      "duration_minutes": 0,
+      "require_room": false,
+      "adult_only": true,
+      "addon_for": {
+        "short_date": 10,
+        "short_date_extend": 10,
+        "bedroom": 20,
+        "bedroom_extend": 20,
+        "karaoke": 0,
+        "karaoke_extend": 0
+      },
+      "description": "ออพชั่นเสริมของ Short Date / Bed Room / Karaoke (ต้องตกลงกับพนักงานก่อน)",
+      "pricing": {
+        "normal": 99
+      }
+    },
+    {
+      "key": "short_date_extend",
+      "name": "ต่อเวลา Short Date",
+      "emoji": "⏱️",
+      "duration_minutes": 20,
+      "require_room": false,
+      "extend_only": true,
+      "pricing": {
+        "normal": 30
+      }
+    },
+    {
+      "key": "bedroom_extend",
+      "name": "ต่อรอบ Bed Room",
+      "emoji": "🛏️",
+      "duration_minutes": 40,
+      "require_room": false,
+      "extend_only": true,
+      "pricing": {
+        "normal": 99
+      }
+    },
+    {
+      "key": "karaoke_extend",
+      "name": "ต่อรอบ Karaoke Room",
+      "emoji": "🎤",
+      "duration_minutes": 60,
+      "require_room": false,
+      "extend_only": true,
+      "pricing": {
+        "normal": 109
+      }
+    },
+    {
+      "key": "donate",
+      "name": "โดเนท",
+      "emoji": "💜",
+      "duration_minutes": 0,
+      "hidden": true,
+      "pricing": {
+        "normal": 0
+      }
+    }
+  ],
+  "_comment_rooms": "services = บริการที่ใช้ห้องนี้ได้ (ไม่ใส่ = ใช้ได้ทุกบริการที่ต้องใช้ห้อง) เพิ่มห้องได้ตามจำนวนห้องจริงในร้าน",
+  "rooms": [
+    {
+      "key": "karaoke_1",
+      "name": "Karaoke Room",
+      "services": [
+        "karaoke"
+      ]
+    },
+    {
+      "key": "bedroom_1",
+      "name": "Bed Room",
+      "services": [
+        "bedroom"
+      ]
+    },
+    {
+      "key": "party_1",
+      "name": "Private Party Room",
+      "services": [
+        "party_room"
+      ]
+    }
+  ],
+  "discount_codes": {},
+  "revenue_share": {
+    "default_staff_percent": 60,
+    "staff_percent": {}
+  },
+  "_comment_top_donate": "ยอดโดเนท = ยอดบิลที่ชำระแล้วทั้งหมดของลูกค้าในเดือนนั้น ประกาศผู้ชนะทุกวันที่ 1 (ต้องถึง min_amount)",
+  "top_donate": {
+    "enabled": true,
+    "min_amount": 1000,
+    "leaderboard_size": 5
+  },
+  "google_sheets": {
+    "enabled": false,
+    "spreadsheet_id": "",
+    "credentials_file": "credentials.json"
+  },
+  "notify": {
+    "loop_seconds": 35,
+    "before_start_minutes": 5,
+    "before_end_minutes": 5
+  },
+  "ticket": {
+    "timeout_minutes": 10
+  },
+  "party_booking": {
+    "advance_days": 2
+  },
+  "review": {
+    "window_hours": 24,
+    "embed_color": "#B026FF"
+  },
+  "cutoff": {
+    "weekday": 5,
+    "hour": 8,
+    "minute": 0
+  },
+  "_comment_donate": "ลูกค้าโดเนทเองผ่านปุ่ม 💜 ใน Request Panel · expire_minutes = ยกเลิกถ้าไม่ส่งสลิปภายในกี่นาที · announce = ประกาศขอบคุณในห้อง channels.announce · staff_percent = % ที่พนักงานได้จากโดเนทเงิน (100 = ร้านไม่หัก) ส่วน Drink Friend คิดตาม revenue_share ปกติ",
+  "donate": {
+    "enabled": true,
+    "min_amount": 20,
+    "max_amount": 50000,
+    "expire_minutes": 60,
+    "shot_service": "drink_friend",
+    "announce": true,
+    "staff_percent": 100
+  }
+}
