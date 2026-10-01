@@ -767,7 +767,7 @@ class ReceptionCog(commands.Cog):
             staff_count=len(staff_ids),
             now_local=now_local,
         )
-        staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price)
+        staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
         end = start + dt.timedelta(minutes=quote.duration_minutes)
         cycle = cycle_month_key(now_local)
 
@@ -851,7 +851,7 @@ class ReceptionCog(commands.Cog):
             now_local=now_local,
         )
         staff_ids = job_staff_ids(parent)
-        staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price)
+        staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
         cycle = cycle_month_key(now_local)
 
         old_end = from_iso(parent["end_time"])

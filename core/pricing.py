@@ -17,6 +17,7 @@ class Quote:
     tier: str | None
     quota_services: list[str] = field(default_factory=list)  # บริการที่ใช้สิทธิ์ฟรีในรอบนี้
     lines: list[tuple[str, float]] = field(default_factory=list)
+    amounts: dict[str, float] = field(default_factory=dict)  # ยอดเงินแยกตาม service key (ใช้คิดส่วนแบ่งรายบริการ)
 
     @property
     def breakdown(self) -> str:
@@ -80,6 +81,7 @@ async def quote_services(
     lines: list[tuple[str, float]] = []
     quota_services: list[str] = []
     seen: set[str] = set()
+    amounts: dict[str, float] = {}
 
     for key in service_keys:
         svc = cfg.service(key)
@@ -122,6 +124,7 @@ async def quote_services(
             price += extra_price
 
         total += price
+        amounts[key] = amounts.get(key, 0.0) + price
 
     lines = _merge_unit_lines(lines)
     return Quote(
@@ -131,6 +134,7 @@ async def quote_services(
         tier=tier,
         quota_services=quota_services,
         lines=lines,
+        amounts=amounts,
     )
 
 
@@ -156,14 +160,30 @@ async def release_quota_for_job(db: Database, customer_id: int, quota_services: 
         await db.release_quota(customer_id, key, cycle)
 
 
-def split_revenue(cfg: Config, staff_ids: int | list[int], total_price: float) -> tuple[float, float]:
+def split_revenue(
+    cfg: Config,
+    staff_ids: int | list[int],
+    total_price: float,
+    amounts: dict[str, float] | None = None,
+) -> tuple[float, float]:
     """คืนค่า (ส่วนแบ่งพนักงานรวมทุกคน, รายได้เข้าร้าน)
 
-    บิลที่มีพนักงานหลายคน (Party Room) แบ่งยอดบิลเท่ากันทุกคน แล้วคิดเปอร์เซ็นต์ของแต่ละคน
+    - amounts = ยอดแยกตามบริการ: บริการที่ตั้ง staff_percent ไว้ใน config ใช้ % นั้น
+      (เช่น ค่าห้อง 70%, Drink Friend 100%) ที่เหลือใช้ % ของพนักงานแต่ละคนตาม revenue_share
+    - บิลที่มีพนักงานหลายคน (Party Room) แบ่งยอดเท่ากันทุกคน แล้วคิดเปอร์เซ็นต์ของแต่ละคน
     """
     ids = [staff_ids] if isinstance(staff_ids, int) else list(staff_ids)
-    portion = total_price / max(len(ids), 1)
-    staff_share = round(sum(portion * cfg.staff_percent(sid) / 100.0 for sid in ids), 2)
+    n = max(len(ids), 1)
+    if not amounts:
+        amounts = {"": total_price}
+
+    staff_share = 0.0
+    for key, amount in amounts.items():
+        fixed = (cfg.service(key) or {}).get("staff_percent") if key else None
+        for sid in ids:
+            percent = float(fixed) if fixed is not None else cfg.staff_percent(sid)
+            staff_share += amount / n * percent / 100.0
+    staff_share = round(staff_share, 2)
     shop_share = round(total_price - staff_share, 2)
     return staff_share, shop_share
 

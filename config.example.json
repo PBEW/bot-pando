@@ -28,7 +28,7 @@
     "qr_image_url": "",
     "note": "โอนแล้วส่งภาพสลิปกลับมาที่ DM นี้ได้เลยนะคะ"
   },
-  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified",
+  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified | staff_percent = % ที่พนักงานได้จากบริการนี้ (ไม่ใส่ = ใช้ revenue_share ของพนักงาน)",
   "services": [
     {
       "key": "short_date",
@@ -52,7 +52,8 @@
       "description": "โดเนทค่าเครื่องดื่มให้พนักงานยกแก้วดื่มเป็นเพื่อน (ราคาต่อ shot)",
       "pricing": {
         "normal": 50
-      }
+      },
+      "staff_percent": 100
     },
     {
       "key": "party_room",
@@ -67,7 +68,8 @@
       "description": "ห้องปาร์ตี้ส่วนตัว รวมพนักงาน 2 คน เพิ่มคนละ 39 บาท (จองล่วงหน้า 2 วัน)",
       "pricing": {
         "normal": 149
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "karaoke",
@@ -78,7 +80,8 @@
       "description": "ห้องคาราโอเกะส่วนตัว ร้อง/ฟังเพลงกับพนักงานที่ชื่นชอบ",
       "pricing": {
         "normal": 109
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "bedroom",
@@ -89,7 +92,8 @@
       "description": "ห้องนอนโรงแรมพร้อมพนักงานเคียงคู่",
       "pricing": {
         "normal": 99
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "erotic",
@@ -131,7 +135,8 @@
       "extend_only": true,
       "pricing": {
         "normal": 99
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "karaoke_extend",
@@ -142,7 +147,8 @@
       "extend_only": true,
       "pricing": {
         "normal": 109
-      }
+      },
+      "staff_percent": 70
     },
     {
       "key": "donate",

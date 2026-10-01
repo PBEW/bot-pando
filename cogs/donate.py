@@ -205,7 +205,7 @@ class DonateCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         now = now_utc()
         if kind == "shot":
-            staff_share, shop_share = split_revenue(self.cfg, staff_id, total)
+            staff_share, shop_share = split_revenue(self.cfg, staff_id, total, {self.shot_key: total})
         else:
             # โดเนทเงิน: ร้านไม่หัก ให้พนักงานตาม donate.staff_percent (ค่าเริ่มต้น 100%)
             percent = float(self.cfg.get("donate.staff_percent", 100))
