@@ -36,6 +36,7 @@ EXTENSIONS = [
     "cogs.staffpanel",
     "cogs.dailycheck",
     "cogs.donate",
+    "cogs.settings",
 ]
 
 

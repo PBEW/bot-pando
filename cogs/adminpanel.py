@@ -214,6 +214,10 @@ class AdminPanel(discord.ui.View):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    @discord.ui.button(label="ตั้งค่าร้าน", emoji="⚙️", style=discord.ButtonStyle.primary, custom_id="olp:admin:settings", row=1)
+    async def settings(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("SettingsCog").open_settings(interaction)
+
     @discord.ui.button(label="แก้เวลาเข้างาน", emoji="✏️", style=discord.ButtonStyle.success, custom_id="olp:admin:fix", row=1)
     async def fix(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.send_message(
@@ -285,7 +289,7 @@ class AdminPanelCog(commands.Cog):
             description=(
                 "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคนกด\n\n"
                 "**ดูข้อมูล** — 📊 สรุปยอดรอบนี้ · 🕒 ชั่วโมงงาน · 🟢 มาทำงานวันนี้\n"
-                "**จัดการ** — 🏆 Top Donate · ✏️ แก้เวลาเข้างาน · ✂️ ตัดรอบทันที\n"
+                "**จัดการ** — 🏆 Top Donate · ⚙️ ตั้งค่าร้าน (ห้อง/บริการ/ราคา/ส่วนแบ่ง/ชำระเงิน) · ✏️ แก้เวลาเข้างาน · ✂️ ตัดรอบทันที\n"
                 "**ระบบ** — 🩺 สถานะระบบ · 🔄 โหลด config ใหม่ · 📖 คำสั่งทั้งหมด\n\n"
                 "*ควรโพสต์ในห้องที่เห็นเฉพาะแอดมิน (คนอื่นกดก็ใช้ไม่ได้)*"
             ),
