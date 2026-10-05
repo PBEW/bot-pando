@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     co_staff          TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานร่วม (บิลหลายพนักงาน)
     co_customers      TEXT    NOT NULL DEFAULT '[]',       -- JSON list ลูกค้าที่มาด้วย (customer_id = คนจ่าย)
     accepted_by       TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานที่กดรับงานแล้ว (ทุกคนต้องรับ)
+    voucher_id        INTEGER,                             -- คูปองเหรียญ Pandora ที่ใช้กับบิลนี้
+    coin_cost         REAL    NOT NULL DEFAULT 0,          -- ส่วนลดจากคูปอง (ร้านออกเงินส่วนนี้ พนักงานได้เต็ม)
     services          TEXT    NOT NULL,                    -- JSON list ของ service key
     room              TEXT,
     note              TEXT,
@@ -149,6 +151,32 @@ CREATE TABLE IF NOT EXISTS attendance (
     prefs       TEXT                          -- JSON: งานที่รับวันนี้ {accepts, avoid_ids, avoid_text}
 );
 
+CREATE TABLE IF NOT EXISTS coin_ledger (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    delta       INTEGER NOT NULL,            -- + ได้เหรียญ / - ใช้หรือถูกดึงคืน
+    kind        TEXT    NOT NULL,            -- EARN | REVOKE | ADMIN | REDEEM | REFUND | EXPIRE
+    reason      TEXT    NOT NULL,
+    ref         TEXT,                        -- เช่น job:12 / review:3 / voucher:5 (ใช้ดึงคืน/กันได้ซ้ำ)
+    by_user     INTEGER,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS coin_vouchers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    reward_key  TEXT    NOT NULL,
+    cost        INTEGER NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE | USED | EXPIRED
+    created_at  TEXT    NOT NULL,
+    expires_at  TEXT    NOT NULL,
+    used_job_id INTEGER,
+    used_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_coin_ledger_user ON coin_ledger(user_id);
+CREATE INDEX IF NOT EXISTS idx_coin_vouchers_user ON coin_vouchers(user_id, status);
+
 CREATE TABLE IF NOT EXISTS staff_payout (
     user_id      INTEGER PRIMARY KEY,
     bank         TEXT    NOT NULL,   -- ธนาคาร หรือ "พร้อมเพย์"
@@ -197,6 +225,10 @@ class Database:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN co_staff TEXT NOT NULL DEFAULT '[]'")
         if "co_customers" not in columns:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN co_customers TEXT NOT NULL DEFAULT '[]'")
+        if "voucher_id" not in columns:
+            await self.conn.execute("ALTER TABLE jobs ADD COLUMN voucher_id INTEGER")
+        if "coin_cost" not in columns:
+            await self.conn.execute("ALTER TABLE jobs ADD COLUMN coin_cost REAL NOT NULL DEFAULT 0")
         if "accepted_by" not in columns:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN accepted_by TEXT NOT NULL DEFAULT '[]'")
         async with self.conn.execute("PRAGMA table_info(attendance)") as cur:

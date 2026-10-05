@@ -314,6 +314,9 @@ class ReviewsCog(commands.Cog):
             public_msg_id=posted.id,
         )
         await self._finish(interaction, f"✅ อนุมัติแล้ว โดย {interaction.user.mention}", COLOR_OK)
+        coins_cog = self.bot.get_cog("CoinsCog")
+        if coins_cog is not None:
+            await coins_cog.on_review_approved(review)
         await send_dm(
             self.bot,
             review["customer_id"],

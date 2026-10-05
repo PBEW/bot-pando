@@ -36,6 +36,9 @@ HEADERS = [
 ]
 
 # บล็อกสรุปด้านขวา (คอลัมน์ Q:S)
+COIN_SHEET = "เหรียญ Pandora"
+COIN_HEADERS = ["เวลา", "ลูกค้า", "ID", "+/- เหรียญ", "ประเภท", "รายละเอียด", "คงเหลือ"]
+
 PAYOUT_SHEET = "บัญชีพนักงาน"
 PAYOUT_HEADERS = ["พนักงาน", "ID พนักงาน", "ธนาคาร / ช่องทาง", "เลขบัญชี / พร้อมเพย์", "ชื่อบัญชี", "อัปเดตล่าสุด"]
 
@@ -270,6 +273,36 @@ def payout_style_requests(sheet_id: int) -> list[dict]:
     return reqs
 
 
+def coin_style_requests(sheet_id: int) -> list[dict]:
+    reqs: list[dict] = [
+        {"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+        _row_height(sheet_id, 0, 36),
+        _cell(sheet_id, 0, 1, 0, 7, _header_fmt("#B8860B")),
+        _cell(sheet_id, 1, None, 1, 2, {"textFormat": {"bold": True}}),
+        _cell(sheet_id, 1, None, 3, 4, {"numberFormat": {"type": "NUMBER", "pattern": "+#,##0;-#,##0;0"},
+                                         "textFormat": {"bold": True}, "horizontalAlignment": "CENTER"}),
+        _cell(sheet_id, 1, None, 6, 7, {"numberFormat": {"type": "NUMBER", "pattern": "#,##0"},
+                                         "backgroundColor": _rgb("#FFF8E1"), "horizontalAlignment": "CENTER"}),
+        # ได้เหรียญ = เขียว / ใช้-ดึงคืน = แดง
+        {"addConditionalFormatRule": {"index": 0, "rule": {
+            "ranges": [_range(sheet_id, 1, None, 3, 4)],
+            "booleanRule": {"condition": {"type": "NUMBER_GREATER", "values": [{"userEnteredValue": "0"}]},
+                            "format": {"textFormat": {"foregroundColor": _rgb(GREEN)}}}}}},
+        {"addConditionalFormatRule": {"index": 1, "rule": {
+            "ranges": [_range(sheet_id, 1, None, 3, 4)],
+            "booleanRule": {"condition": {"type": "NUMBER_LESS", "values": [{"userEnteredValue": "0"}]},
+                            "format": {"textFormat": {"foregroundColor": _rgb("#C62828")}}}}}},
+        {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 7)}}},
+    ]
+    widths = {0: 130, 1: 150, 3: 90, 4: 90, 5: 260, 6: 90}
+    reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
+    reqs.append(_hide(sheet_id, 2))
+    return reqs
+
+
 class SheetsClient:
     """ห่อ gspread ให้เรียกใช้แบบ async ได้ (gspread เป็น sync ล้วน)"""
 
@@ -416,6 +449,34 @@ class SheetsClient:
             return []
         async with self._lock:
             return await asyncio.to_thread(self._restyle_sync, cycle_title)
+
+    # ---------------------------------------------------------- เหรียญ
+    def _coin_ws(self):
+        import gspread
+
+        assert self._spreadsheet is not None
+        try:
+            return self._spreadsheet.worksheet(COIN_SHEET)
+        except gspread.WorksheetNotFound:
+            ws = self._spreadsheet.add_worksheet(title=COIN_SHEET, rows=1000, cols=7)
+            ws.update(values=[COIN_HEADERS], range_name="A1")
+            self._spreadsheet.batch_update(
+                {"requests": self._clear_conditional_rules(ws.id) + coin_style_requests(ws.id)}
+            )
+            return ws
+
+    async def append_coin_row(self, row: list) -> bool:
+        if not self.ready:
+            return False
+        async with self._lock:
+            try:
+                await asyncio.to_thread(
+                    lambda: self._coin_ws().append_row(row, value_input_option="RAW", table_range="A1")
+                )
+                return True
+            except Exception:  # noqa: BLE001
+                log.exception("บันทึกเหรียญลง Google Sheets ไม่สำเร็จ")
+                return False
 
     # ------------------------------------------------------ บัญชีพนักงาน
     def _payout_ws(self):

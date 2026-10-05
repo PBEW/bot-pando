@@ -56,6 +56,9 @@ class SchedulerCog(commands.Cog):
             if donate is not None:
                 await donate.expire_unpaid()
             await self.bot.get_cog("PaymentsCog").check_stale_bills()
+            coins_cog = self.bot.get_cog("CoinsCog")
+            if coins_cog is not None:
+                await coins_cog.maintenance()
         except Exception:  # noqa: BLE001 - ลูปต้องไม่ตาย
             log.exception("เกิดข้อผิดพลาดใน background loop")
 
@@ -366,6 +369,9 @@ class SchedulerCog(commands.Cog):
         rows = await self.donate_ranking(prev.year, prev.month)
         if rows and rows[0]["total"] >= self.cfg.top_donate_min:
             top = rows[0]
+            coins_cog = self.bot.get_cog("CoinsCog")
+            if coins_cog is not None:
+                await coins_cog.on_top_donate(top["customer_id"], f"{prev.month:02d}/{prev.year}")
             await payments.notify_admin_text(
                 f"🏆 ผู้ชนะ Top Donate {prev.month:02d}/{prev.year}: <@{top['customer_id']}> "
                 f"({money(top['total'])}) — ติดต่อจัดเดทกับ <@{top['top_staff']}> ได้เลยค่ะ"

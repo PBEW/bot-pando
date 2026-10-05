@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core.coins import enabled as coin_enabled, label as coin_label, opt as coin_opt
 from core.embeds import COLOR_MAIN
 from core.utils import is_admin, purge_old_panels
 
@@ -77,8 +78,11 @@ def menu_embed(cfg) -> discord.Embed:
 
 
 class RequestPanel(discord.ui.View):
-    def __init__(self, vip_enabled: bool = False) -> None:
+    def __init__(self, vip_enabled: bool = False, coins_enabled: bool = True) -> None:
         super().__init__(timeout=None)
+        if not coins_enabled:
+            for item in (self.coins_mine, self.coins_redeem, self.coins_top):
+                self.remove_item(item)
         if not vip_enabled:
             self.remove_item(self.vip)
             self.remove_item(self.vip_check)
@@ -141,12 +145,24 @@ class RequestPanel(discord.ui.View):
         embed = await scheduler.donate_embed(now_local.year, now_local.month, final=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    @discord.ui.button(label="เหรียญของฉัน", emoji="🪙", style=discord.ButtonStyle.primary, custom_id="olp:request:coins", row=2)
+    async def coins_mine(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("CoinsCog").my_coins(interaction)
+
+    @discord.ui.button(label="แลกรางวัล", emoji="🎁", style=discord.ButtonStyle.success, custom_id="olp:request:redeem", row=2)
+    async def coins_redeem(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("CoinsCog").open_redeem(interaction)
+
+    @discord.ui.button(label="อันดับนักสะสม", emoji="🏅", style=discord.ButtonStyle.secondary, custom_id="olp:request:coins_top", row=2)
+    async def coins_top(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("CoinsCog").show_leaderboard(interaction)
+
     @discord.ui.button(
         label="ซื้อ VIP / ต่ออายุ",
         emoji="💎",
         style=discord.ButtonStyle.success,
         custom_id="olp:request:vip",
-        row=1,
+        row=3,
     )
     async def vip(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         cog = interaction.client.get_cog("VipCog")
@@ -157,7 +173,7 @@ class RequestPanel(discord.ui.View):
         emoji="🔍",
         style=discord.ButtonStyle.secondary,
         custom_id="olp:request:vip_check",
-        row=1,
+        row=3,
     )
     async def vip_check(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         cog = interaction.client.get_cog("VipCog")
@@ -186,6 +202,12 @@ class RequestPanelCog(commands.Cog):
             "💜 **โดเนทให้พนักงาน** — เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิปได้เอง",
             "🏆 **Top Donate** — ดูอันดับยอดโดเนทของเดือนนี้",
         ]
+        if coin_enabled(self.cfg):
+            lines += [
+                f"\n{coin_label(self.cfg)} — ได้ 1 เหรียญทุก {coin_opt(self.cfg, 'baht_per_coin')} บาท "
+                "สะสมแลกรางวัล (Drink ฟรี, Short Date ฟรี, Role พิเศษ ฯลฯ)",
+                "🪙 **เหรียญของฉัน** · 🎁 **แลกรางวัล** · 🏅 **อันดับนักสะสม**",
+            ]
         if self.cfg.vip_enabled:
             lines += [
                 "💎 **ซื้อ VIP / ต่ออายุ** — เลือกแพ็กเกจ ใส่โค้ดส่วนลด และชำระเงินได้เอง",
@@ -199,7 +221,7 @@ class RequestPanelCog(commands.Cog):
             description="\n".join(lines),
             color=COLOR_MAIN,
         )
-        await interaction.channel.send(embed=embed, view=RequestPanel(self.cfg.vip_enabled))
+        await interaction.channel.send(embed=embed, view=RequestPanel(self.cfg.vip_enabled, coin_enabled(self.cfg)))
 
         note = f" (ลบแผงเก่าออก {removed} อัน)" if removed else ""
         await interaction.followup.send(f"โพสต์ Request Panel แล้วค่ะ{note}", ephemeral=True)
@@ -210,5 +232,5 @@ class RequestPanelCog(commands.Cog):
 
 
 async def setup(bot: commands.Bot) -> None:
-    bot.add_view(RequestPanel(bot.cfg.vip_enabled))
+    bot.add_view(RequestPanel(bot.cfg.vip_enabled, coin_enabled(bot.cfg)))
     await bot.add_cog(RequestPanelCog(bot))
