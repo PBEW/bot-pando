@@ -237,13 +237,29 @@ class SchedulerCog(commands.Cog):
 
         guild = self.bot.get_guild(self.cfg.guild_id)
         if per_staff:
+            payouts = await self.db.all_payouts()
             lines = []
             for staff_id, (gross, share, count) in sorted(
                 per_staff.items(), key=lambda kv: kv[1][0], reverse=True
             ):
                 name = await display_name(self.bot, guild, staff_id)
-                lines.append(f"• **{name}** — {count} บิล · In {money(gross)} · แบ่ง {money(share)}")
-            embed.add_field(name="แยกตามพนักงาน", value="\n".join(lines)[:1024], inline=False)
+                acc = payouts.get(staff_id)
+                acc_text = (
+                    f"💳 {acc['bank']} `{acc['account_no']}` ({acc['account_name']})"
+                    if acc
+                    else "⚠️ ยังไม่ได้ใส่บัญชีรับเงิน"
+                )
+                lines.append(
+                    f"• **{name}** — {count} บิล · In {money(gross)} · **โอน {share:,.2f} บาท**\n　{acc_text}"
+                )
+            # แบ่งเป็นหลาย field ถ้ายาวเกิน 1024 ตัวอักษร (พนักงานเยอะ)
+            chunk: list[str] = []
+            for line in lines:
+                if sum(len(x) + 1 for x in chunk) + len(line) > 1000:
+                    embed.add_field(name="แยกตามพนักงาน", value="\n".join(chunk), inline=False)
+                    chunk = []
+                chunk.append(line)
+            embed.add_field(name="แยกตามพนักงาน", value="\n".join(chunk), inline=False)
 
         url = await self.bot.sheets.spreadsheet_url()
         if url:
