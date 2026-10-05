@@ -1,4 +1,4 @@
-"""เมนูพนักงาน: แผงปุ่มค้างในห้อง รวมเข้า/ออกงาน ชั่วโมง รายได้ และงานของฉันไว้ที่เดียว"""
+"""เมนูพนักงาน: แผงปุ่มค้างในห้อง รวมเข้างาน ชั่วโมง รายได้ และงานของฉันไว้ที่เดียว"""
 from __future__ import annotations
 
 import datetime as dt
@@ -26,9 +26,9 @@ class StaffPanel(discord.ui.View):
     async def clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await self._attendance(interaction).clock_in(interaction)
 
-    @discord.ui.button(label="ออกงาน", emoji="🔴", style=discord.ButtonStyle.danger, custom_id="olp:staff:out", row=0)
-    async def clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await self._attendance(interaction).clock_out(interaction)
+    @discord.ui.button(label="ยกเลิกเข้างาน", emoji="↩️", style=discord.ButtonStyle.secondary, custom_id="olp:staff:cancel", row=0)
+    async def cancel_clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._attendance(interaction).cancel_clock_in(interaction)
 
     # แถว 2: ข้อมูลของฉัน
     @discord.ui.button(label="ชั่วโมงของฉัน", emoji="🕒", style=discord.ButtonStyle.primary, custom_id="olp:staff:hours", row=1)
@@ -46,12 +46,12 @@ class StaffPanel(discord.ui.View):
         await cog.send_my_jobs(interaction)
 
     # แถว 3: ทีม
-    @discord.ui.button(label="ใครอยู่ในกะ", emoji="👥", style=discord.ButtonStyle.secondary, custom_id="olp:staff:on_duty", row=2)
+    @discord.ui.button(label="มาทำงานวันนี้", emoji="👥", style=discord.ButtonStyle.secondary, custom_id="olp:staff:on_duty", row=2)
     async def on_duty(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         cog = self._attendance(interaction)
         if await cog._deny_if_not_staff(interaction):
             return
-        await interaction.response.send_message(embed=await cog.on_duty_embed(), ephemeral=True)
+        await interaction.response.send_message(embed=await cog.today_embed(), ephemeral=True)
 
 
 class StaffPanelCog(commands.Cog):
@@ -116,7 +116,7 @@ class StaffPanelCog(commands.Cog):
             embed.description = "\n".join(lines)[:4000]
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="panel_staff", description="โพสต์เมนูพนักงาน (เข้า/ออกงาน, ชั่วโมง, รายได้, งานของฉัน)")
+    @app_commands.command(name="panel_staff", description="โพสต์เมนูพนักงาน (เข้างาน, ชั่วโมง, รายได้, งานของฉัน)")
     async def panel_staff(self, interaction: discord.Interaction) -> None:
         if not is_admin(interaction.user, self.cfg.admin_role_id):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
@@ -129,10 +129,10 @@ class StaffPanelCog(commands.Cog):
             title="🧑‍💼 Pandora · เมนูพนักงาน",
             description=(
                 "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคุณ\n\n"
-                "**ลงเวลา** — 🟢 เข้างาน · 🔴 ออกงาน\n"
+                "**ลงเวลา** — 🟢 เข้างาน · ↩️ ยกเลิกเข้างาน (กดผิด)\n"
                 "**ของฉัน** — 🕒 ชั่วโมงของฉัน · 💰 รายได้รอบนี้ · 📋 งานของฉัน\n"
-                "**ทีม** — 👥 ใครอยู่ในกะ\n\n"
-                f"*ลืมกดออกงานเกิน {self.cfg.attendance_warn_hours:g} ชม. บอทจะเตือนทาง DM ค่ะ*"
+                "**ทีม** — 👥 มาทำงานวันนี้\n\n"
+                "*ไม่ต้องกดออกงาน บอทตัดยอดให้อัตโนมัติทุกตี 1*"
             ),
             color=COLOR_MAIN,
         )

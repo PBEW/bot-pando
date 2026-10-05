@@ -447,6 +447,81 @@ class PaymentsCog(commands.Cog):
         if ok:
             await self.db.update_job(job["id"], sheet_logged=1)
 
+    # -------------------------------------------------- บิลค้าง (เรียกจากลูป)
+    def _bill_minutes(self, key: str, default: int) -> int:
+        return int(self.cfg.get(f"bill_timeout.{key}", default))
+
+    async def _once(self, key: str) -> bool:
+        """คืน True ครั้งแรกที่เจอ key นี้ (กันแจ้งเตือนซ้ำทุกรอบลูป)"""
+        if await self.db.get_meta(key):
+            return False
+        await self.db.set_meta(key, to_iso(now_utc()))
+        return True
+
+    async def check_stale_bills(self) -> None:
+        """จัดการบิลปกติ/ต่อเวลาที่ค้าง (โดเนทมีระบบหมดอายุของตัวเองใน DonateCog)
+
+        - รอพนักงานรับงานนาน → แจ้งแอดมิน 1 ครั้ง
+        - ลูกค้ายังไม่ส่งสลิป → DM เตือน 1 ครั้ง แล้วยกเลิกอัตโนมัติเมื่อเลยกำหนด
+          (กำหนด = รับงาน + payment_cancel_minutes แต่ไม่ก่อนเวลาเริ่มงาน เผื่อจองล่วงหน้า)
+        - สลิปรอแอดมินตรวจนาน → แจ้งแอดมิน 1 ครั้ง
+        """
+        now = now_utc()
+        staff_wait = dt.timedelta(minutes=self._bill_minutes("staff_accept_minutes", 15))
+        pay_remind = dt.timedelta(minutes=self._bill_minutes("payment_remind_minutes", 15))
+        pay_cancel = dt.timedelta(minutes=self._bill_minutes("payment_cancel_minutes", 45))
+        slip_wait = dt.timedelta(minutes=self._bill_minutes("slip_review_minutes", 10))
+
+        for job in await self.db.jobs_by_status(["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING"]):
+            if job["job_type"] == "DONATE":
+                continue
+            jid = job["id"]
+
+            if job["status"] == "PENDING_STAFF":
+                if now - from_iso(job["created_at"]) >= staff_wait and await self._once(f"stale:staff:{jid}"):
+                    await self.notify_admin_text(
+                        f"⏳ บิล `#{jid}` รอ <@{job['staff_id']}> กดรับงานมาเกิน {staff_wait.seconds // 60} นาทีแล้ว "
+                        "— ทักพนักงาน หรือยกเลิกแล้วเปิดบิลใหม่ด้วย `/bill cancel`"
+                    )
+
+            elif job["status"] == "ACCEPTED" and not job.get("slip_url"):
+                accepted = from_iso(job["accepted_at"] or job["created_at"])
+                deadline = max(accepted + pay_cancel, from_iso(job["start_time"]))
+                if now >= deadline:
+                    ok, _ = await self.cancel_job(
+                        jid, self.bot.user, f"ไม่ได้ชำระเงินภายในเวลาที่กำหนด ({pay_cancel.seconds // 60} นาที)"
+                    )
+                    if ok:
+                        await self.notify_admin_text(
+                            f"⌛ ยกเลิกบิล `#{jid}` อัตโนมัติ — <@{job['customer_id']}> ไม่ได้ส่งสลิปตามกำหนด"
+                        )
+                elif now - accepted >= pay_remind and await self._once(f"stale:pay:{jid}"):
+                    left = int((deadline - now).total_seconds() // 60)
+                    await send_dm(
+                        self.bot,
+                        job["customer_id"],
+                        embed=discord.Embed(
+                            title="💳 อย่าลืมชำระเงินนะคะ",
+                            description=(
+                                f"บิล `#{jid}` ยอด **{money(job['total_price'])}** ยังรอสลิปอยู่ค่ะ\n"
+                                f"ส่งภาพสลิปใน DM นี้ได้เลย — ถ้าไม่ชำระภายใน **{max(left, 1)} นาที** "
+                                "ระบบจะยกเลิกบิลให้อัตโนมัติ"
+                            ),
+                            color=COLOR_GOLD,
+                        ),
+                    )
+
+            elif job["status"] == "SLIP_PENDING":
+                seen_key = f"stale:slipseen:{jid}"
+                first_seen = await self.db.get_meta(seen_key)
+                if first_seen is None:
+                    await self.db.set_meta(seen_key, to_iso(now))
+                elif now - from_iso(first_seen) >= slip_wait and await self._once(f"stale:slip:{jid}"):
+                    await self.notify_admin_text(
+                        f"🔎 สลิปบิล `#{jid}` รอแอดมินตรวจมาเกิน {slip_wait.seconds // 60} นาทีแล้ว "
+                        f"(ลูกค้า <@{job['customer_id']}> ยอด {money(job['total_price'])})"
+                    )
+
     # -------------------------------------------------------------- utils
     async def notify_admin(
         self,

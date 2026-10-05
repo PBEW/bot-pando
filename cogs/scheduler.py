@@ -55,6 +55,7 @@ class SchedulerCog(commands.Cog):
             donate = self.bot.get_cog("DonateCog")
             if donate is not None:
                 await donate.expire_unpaid()
+            await self.bot.get_cog("PaymentsCog").check_stale_bills()
         except Exception:  # noqa: BLE001 - ลูปต้องไม่ตาย
             log.exception("เกิดข้อผิดพลาดใน background loop")
 

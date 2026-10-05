@@ -31,6 +31,7 @@ from core.utils import (
     to_iso,
 )
 from core.vip_logic import active_tier, cycle_month_key
+from cogs.attendance import accept_label
 
 log = logging.getLogger("olp.reception")
 
@@ -205,11 +206,14 @@ class BillDetailModal(discord.ui.Modal, title="รายละเอียดบ
 class OpenBillWizard(discord.ui.View):
     """แผงเลือกข้อมูลเปิดบิลแบบขั้นตอนเดียว (ephemeral)"""
 
-    def __init__(self, cog: "ReceptionCog", opener: discord.Member) -> None:
+    def __init__(
+        self, cog: "ReceptionCog", opener: discord.Member, today: dict[int, dict] | None = None
+    ) -> None:
         super().__init__(timeout=600)
         self.cog = cog
         self.cfg = cog.cfg
         self.opener = opener
+        self.today = today or {}  # {staff_id: prefs} ของคนที่กดเข้างานวันนี้
         self.customer: discord.abc.User | None = None
         self.customer_id: int | None = None
         self.staff_ids: list[int] = []
@@ -230,7 +234,8 @@ class OpenBillWizard(discord.ui.View):
         staff_hint = " (Party Room เลือกได้หลายคน)" if max_staff > 1 else ""
 
         # ถ้าตั้ง roles.staff ไว้ ให้แสดงรายชื่อพนักงานเป็นเมนู (ไม่ต้องพิมพ์ค้นหา ชื่อฟอนต์พิเศษก็เลือกได้)
-        staff = self._staff_members(opener)
+        # คนที่เข้างานวันนี้ขึ้นก่อน พร้อมบอกงานที่รับ
+        staff = sorted(self._staff_members(opener), key=lambda m: m.id not in self.today)
         if 0 < len(staff) <= 25:
             self.staff_select = discord.ui.Select(
                 placeholder=f"💃 เลือกพนักงาน{staff_hint}",
@@ -238,7 +243,12 @@ class OpenBillWizard(discord.ui.View):
                 max_values=min(max_staff, len(staff)),
                 row=1,
                 options=[
-                    discord.SelectOption(label=m.display_name[:100], value=str(m.id), description=m.name[:100])
+                    discord.SelectOption(
+                        label=m.display_name[:100],
+                        value=str(m.id),
+                        emoji="🟢" if m.id in self.today else "⚪",
+                        description=self._staff_hint(m.id),
+                    )
                     for m in staff
                 ],
             )
@@ -315,6 +325,44 @@ class OpenBillWizard(discord.ui.View):
         ]
         return options or [discord.SelectOption(label="ไม่มีห้องที่ใช้กับบริการนี้ใน config", value="none")]
 
+    def _staff_hint(self, staff_id: int) -> str:
+        prefs = self.today.get(staff_id)
+        if prefs is None:
+            return "ยังไม่กดเข้างานวันนี้"
+        accepts = ", ".join(accept_label(self.cfg, k) for k in prefs["accepts"]) or "-"
+        return f"รับ: {accepts}"[:100]
+
+    def _needed_categories(self) -> set[str]:
+        return {
+            cat
+            for key in self.service_keys
+            if (cat := (self.cfg.service(key) or {}).get("category"))
+        }
+
+    def _avoid_problem(self) -> str | None:
+        """พนักงานที่เลือกระบุไว้ว่าไม่รับลูกค้าคนนี้วันนี้ -> ห้ามเปิดบิล"""
+        for sid in self.staff_ids:
+            if self.customer_id in self.today.get(sid, {}).get("avoid_ids", []):
+                return f"<@{sid}> แจ้งไว้ว่าวันนี้ไม่รับลูกค้าคนนี้ค่ะ — เลือกพนักงานคนอื่นนะคะ"
+        return None
+
+    def staff_warnings(self) -> list[str]:
+        """คำเตือน (ไม่บล็อก): ยังไม่เข้างาน / ไม่รับงานประเภทนี้ / มีหมายเหตุ"""
+        need = self._needed_categories()
+        lines = []
+        for sid in self.staff_ids:
+            prefs = self.today.get(sid)
+            if prefs is None:
+                lines.append(f"⚪ <@{sid}> ยังไม่กดเข้างานวันนี้")
+                continue
+            missing = need - set(prefs["accepts"])
+            if missing:
+                labels = ", ".join(accept_label(self.cfg, k) for k in sorted(missing))
+                lines.append(f"⚠️ <@{sid}> วันนี้ไม่รับ: {labels}")
+            if prefs["avoid_text"]:
+                lines.append(f"📝 <@{sid}> หมายเหตุ: {prefs['avoid_text'][:150]}")
+        return lines
+
     def unit_service_keys(self) -> list[str]:
         return [k for k in self.service_keys if (self.cfg.service(k) or {}).get("per_unit")]
 
@@ -363,8 +411,10 @@ class OpenBillWizard(discord.ui.View):
             return "ยังไม่ได้เลือก **บริการ** ค่ะ"
         if self._requires_room() and not self.room_key:
             return "บริการที่เลือกต้องระบุ **ห้อง** ด้วยค่ะ"
-        return validate_selection(self.cfg, self.service_keys, len(self.staff_ids)) or adult_problem(
-            self.cfg, self.customer, self.service_keys
+        return (
+            self._avoid_problem()
+            or validate_selection(self.cfg, self.service_keys, len(self.staff_ids))
+            or adult_problem(self.cfg, self.customer, self.service_keys)
         )
 
     async def _customer_tier(self) -> str | None:
@@ -435,6 +485,10 @@ class OpenBillWizard(discord.ui.View):
                     ),
                     inline=False,
                 )
+
+        warnings = self.staff_warnings()
+        if warnings:
+            embed.add_field(name="เช็คพนักงาน", value="\n".join(warnings)[:1024], inline=False)
 
         ready = self.customer_id and self.staff_ids and self.service_keys
         problem = self._validate() if ready else None
@@ -672,7 +726,9 @@ class ReceptionCog(commands.Cog):
         if not self._admin_guard(interaction):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
-        wizard = OpenBillWizard(self, interaction.user)
+        attendance = self.bot.get_cog("AttendanceCog")
+        today = await attendance.today_prefs() if attendance else {}
+        wizard = OpenBillWizard(self, interaction.user, today)
         await interaction.response.send_message(
             embed=await wizard.summary_embed(), view=wizard, ephemeral=True
         )
