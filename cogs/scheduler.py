@@ -115,19 +115,17 @@ class SchedulerCog(commands.Cog):
         )
         for staff_id in job_staff_ids(job):
             await send_dm(self.bot, staff_id, embed=staff_embed)
-        await send_dm(
-            self.bot,
-            job["customer_id"],
-            embed=discord.Embed(
-                title=f"⏰ อีก {minutes} นาทีจะถึงเวลานัด",
-                description=(
-                    f"บิล `#{job['id']}` · พนักงาน {' '.join(f'<@{s}>' for s in job_staff_ids(job))}\n"
-                    f"ห้อง: {self.cfg.room_name(job.get('room'))}\n"
-                    f"เริ่ม {discord_ts(start)} — เตรียมเข้างานได้เลยค่ะ"
-                ),
-                color=COLOR_WARN,
+        customer_embed = discord.Embed(
+            title=f"⏰ อีก {minutes} นาทีจะถึงเวลานัด",
+            description=(
+                f"บิล `#{job['id']}` · พนักงาน {' '.join(f'<@{s}>' for s in job_staff_ids(job))}\n"
+                f"ห้อง: {self.cfg.room_name(job.get('room'))}\n"
+                f"เริ่ม {discord_ts(start)} — เตรียมเข้างานได้เลยค่ะ"
             ),
+            color=COLOR_WARN,
         )
+        for cid in [job["customer_id"], *(job.get("co_customers") or [])]:
+            await send_dm(self.bot, cid, embed=customer_embed)
 
     async def _notify_end(self, job: dict, end: dt.datetime) -> None:
         minutes = self.cfg.before_end_minutes
@@ -139,9 +137,8 @@ class SchedulerCog(commands.Cog):
             ),
             color=COLOR_WARN,
         )
-        for staff_id in job_staff_ids(job):
-            await send_dm(self.bot, staff_id, embed=embed)
-        await send_dm(self.bot, job["customer_id"], embed=embed)
+        for uid in [*job_staff_ids(job), job["customer_id"], *(job.get("co_customers") or [])]:
+            await send_dm(self.bot, uid, embed=embed)
 
     # ------------------------------------------------------------- Ticket
     async def check_tickets(self) -> None:

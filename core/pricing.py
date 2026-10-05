@@ -31,8 +31,42 @@ def staff_count_extra(svc: dict, staff_count: int) -> int:
     return max(0, staff_count - int(svc.get("included_staff", 1)))
 
 
-def validate_selection(cfg: Config, service_keys: list[str], staff_count: int) -> str | None:
-    """ตรวจว่าชุดบริการ/จำนวนพนักงานที่เลือกใช้ได้จริง คืนข้อความปัญหา หรือ None ถ้าผ่าน"""
+def customer_count_extra(svc: dict, customer_count: int) -> int:
+    """จำนวนลูกค้าที่เกินจากคนแรก (คิดเงินเฉพาะบริการที่ตั้ง extra_customer_price)"""
+    if customer_count <= 1 or svc.get("per_unit"):
+        return 0
+    return customer_count - 1
+
+
+def max_customers(svc: dict) -> int:
+    """ลูกค้าสูงสุดต่อบิลของบริการนี้ (บริการคิดต่อหน่วย เช่น Drink Friend ไม่จำกัด)"""
+    if svc.get("per_unit"):
+        return 99
+    return int(svc.get("max_customers", 1))
+
+
+def customer_problem(cfg: Config, service_keys: list[str], customer_count: int) -> str | None:
+    if customer_count <= 1:
+        return None
+    for key in dict.fromkeys(service_keys):
+        svc = cfg.service(key)
+        if svc is None:
+            continue
+        limit = max_customers(svc)
+        if customer_count > limit:
+            if limit == 1:
+                return f"**{svc['name']}** รับลูกค้าได้ทีละ 1 คนค่ะ"
+            return f"**{svc['name']}** รับลูกค้าได้สูงสุด {limit} คนค่ะ"
+    return None
+
+
+def validate_selection(
+    cfg: Config, service_keys: list[str], staff_count: int, customer_count: int = 1
+) -> str | None:
+    """ตรวจว่าชุดบริการ/จำนวนพนักงาน/จำนวนลูกค้าที่เลือกใช้ได้จริง คืนข้อความปัญหา หรือ None ถ้าผ่าน"""
+    problem = customer_problem(cfg, service_keys, customer_count)
+    if problem:
+        return problem
     keys = set(service_keys)
     services = [cfg.service(k) for k in keys]
     services = [s for s in services if s]
@@ -61,6 +95,7 @@ async def quote_services(
     customer_id: int,
     tier: str | None,
     staff_count: int = 1,
+    customer_count: int = 1,
     now_local: dt.datetime | None = None,
 ) -> Quote:
     """รวมราคาและระยะเวลาของบริการที่เลือก
@@ -82,6 +117,7 @@ async def quote_services(
     quota_services: list[str] = []
     seen: set[str] = set()
     amounts: dict[str, float] = {}
+    counted_customers: set[str] = set()
 
     for key in service_keys:
         svc = cfg.service(key)
@@ -128,6 +164,16 @@ async def quote_services(
             total += extra_price
             amounts[f"{key}{EXTRA_SUFFIX}"] = amounts.get(f"{key}{EXTRA_SUFFIX}", 0.0) + extra_price
 
+        # ค่าลูกค้าเพิ่ม เก็บแยกเป็น "<key>:cust" คิดส่วนแบ่งด้วย extra_customer_percent (ค่าเริ่มต้น 100)
+        more = customer_count_extra(svc, customer_count)
+        cust_price = float(svc.get("extra_customer_price", 0))
+        if more and cust_price and key not in counted_customers:
+            counted_customers.add(key)
+            add = more * cust_price
+            lines.append((f"ลูกค้าเพิ่ม ({svc['name']}) {more} คน", add))
+            total += add
+            amounts[f"{key}{CUSTOMER_SUFFIX}"] = amounts.get(f"{key}{CUSTOMER_SUFFIX}", 0.0) + add
+
     lines = _merge_unit_lines(lines)
     return Quote(
         services=list(service_keys),
@@ -163,6 +209,7 @@ async def release_quota_for_job(db: Database, customer_id: int, quota_services: 
 
 
 EXTRA_SUFFIX = ":extra"
+CUSTOMER_SUFFIX = ":cust"
 
 
 def _fixed_percent(cfg: Config, key: str) -> float | None:
@@ -177,6 +224,9 @@ def _fixed_percent(cfg: Config, key: str) -> float | None:
     if key.endswith(EXTRA_SUFFIX):
         svc = cfg.service(key[: -len(EXTRA_SUFFIX)]) or {}
         return float(svc.get("extra_staff_percent", 100))
+    if key.endswith(CUSTOMER_SUFFIX):
+        svc = cfg.service(key[: -len(CUSTOMER_SUFFIX)]) or {}
+        return float(svc.get("extra_customer_percent", 100))
     value = (cfg.service(key) or {}).get("staff_percent")
     return float(value) if value is not None else None
 

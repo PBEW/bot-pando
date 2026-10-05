@@ -429,6 +429,8 @@ class PaymentsCog(commands.Cog):
         customer_name = await display_name(self.bot, guild, job["customer_id"])
         split = job_staff_split(self.cfg, job)
         group_note = f"ทีม {len(split)} คน · " if len(split) > 1 else ""
+        if job.get("co_customers"):
+            group_note += f"ลูกค้า {1 + len(job['co_customers'])} คน · "
 
         # บิลที่มีพนักงานหลายคน (Party Room) แยกเป็นแถวละคน เพื่อให้สูตรสรุปรายพนักงานในชีตถูกต้อง
         rows = []

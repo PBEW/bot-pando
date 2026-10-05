@@ -35,6 +35,12 @@
         "key": "chill",
         "label": "เล่นชิวๆ",
         "emoji": "☕"
+      },
+      {
+        "key": "group_vip",
+        "label": "รับลูกค้าหลายคนในห้อง VIP",
+        "emoji": "👥",
+        "default": false
       }
     ]
   },
@@ -44,7 +50,7 @@
     "qr_image_url": "",
     "note": "โอนแล้วส่งภาพสลิปกลับมาที่ DM นี้ได้เลยนะคะ"
   },
-  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified | staff_percent = % ที่พนักงานได้จากบริการนี้ (ไม่ใส่ = ใช้ revenue_share ของพนักงาน) | extra_staff_percent = % ที่พนักงานได้จากค่าพนักงานเพิ่ม (ค่าเริ่มต้น 100 = ร้านไม่หักซ้ำ ทุกคนได้เท่ามาคนเดียว)",
+  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified | staff_percent = % ที่พนักงานได้จากบริการนี้ (ไม่ใส่ = ใช้ revenue_share ของพนักงาน) | extra_staff_percent = % ที่พนักงานได้จากค่าพนักงานเพิ่ม (ค่าเริ่มต้น 100 = ร้านไม่หักซ้ำ ทุกคนได้เท่ามาคนเดียว) | max_customers / extra_customer_price / extra_customer_percent = ลูกค้าหลายคนต่อบิล (คนแรกคือคนจ่าย) | group_consent = ลูกค้าหลายคนได้เฉพาะพนักงานที่ติ๊ก 👥 ตอนเข้างาน",
   "services": [
     {
       "key": "short_date",
@@ -62,7 +68,10 @@
       "included_staff": 1,
       "extra_staff_price": 49,
       "max_staff": 3,
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 3,
+      "extra_customer_price": 39,
+      "extra_customer_percent": 100
     },
     {
       "key": "drink_friend",
@@ -95,7 +104,10 @@
       },
       "staff_percent": 70,
       "category": "normal_room",
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 8,
+      "extra_customer_price": 0,
+      "extra_customer_percent": 100
     },
     {
       "key": "karaoke",
@@ -113,7 +125,10 @@
       "included_staff": 1,
       "extra_staff_price": 79,
       "max_staff": 4,
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 5,
+      "extra_customer_price": 39,
+      "extra_customer_percent": 100
     },
     {
       "key": "bedroom",
@@ -131,7 +146,11 @@
       "included_staff": 1,
       "extra_staff_price": 69,
       "max_staff": 3,
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 2,
+      "extra_customer_price": 59,
+      "extra_customer_percent": 100,
+      "group_consent": true
     },
     {
       "key": "erotic",
@@ -158,7 +177,11 @@
       "included_staff": 1,
       "extra_staff_price": 99,
       "max_staff": 3,
-      "extra_staff_percent": 70
+      "extra_staff_percent": 70,
+      "max_customers": 2,
+      "extra_customer_price": 99,
+      "extra_customer_percent": 100,
+      "group_consent": true
     },
     {
       "key": "short_date_extend",
@@ -176,7 +199,10 @@
       "included_staff": 1,
       "extra_staff_price": 21,
       "max_staff": 3,
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 3,
+      "extra_customer_price": 17,
+      "extra_customer_percent": 100
     },
     {
       "key": "bedroom_extend",
@@ -194,7 +220,11 @@
       "included_staff": 1,
       "extra_staff_price": 69,
       "max_staff": 3,
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 2,
+      "extra_customer_price": 59,
+      "extra_customer_percent": 100,
+      "group_consent": true
     },
     {
       "key": "karaoke_extend",
@@ -212,7 +242,10 @@
       "included_staff": 1,
       "extra_staff_price": 79,
       "max_staff": 4,
-      "extra_staff_percent": 100
+      "extra_staff_percent": 100,
+      "max_customers": 5,
+      "extra_customer_price": 39,
+      "extra_customer_percent": 100
     },
     {
       "key": "donate",

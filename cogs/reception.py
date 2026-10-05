@@ -17,6 +17,7 @@ from core.pricing import (
     quote_services,
     reserve_quota_for_job,
     split_revenue,
+    max_customers,
     validate_selection,
 )
 from core.utils import (
@@ -215,14 +216,18 @@ class OpenBillWizard(discord.ui.View):
         self.cfg = cog.cfg
         self.opener = opener
         self.today = today or {}  # {staff_id: prefs} ของคนที่กดเข้างานวันนี้
-        self.customer: discord.abc.User | None = None
-        self.customer_id: int | None = None
+        self.customers: list[discord.abc.User] = []   # ลูกค้าทุกคนในบิล
+        self.payer_index = 0                            # คนจ่าย = customers[payer_index]
         self.staff_ids: list[int] = []
         self.service_keys: list[str] = []
         self.room_key: str | None = None
 
+        max_cust = max([max_customers(s) for s in self.cfg.bookable_services() if not s.get("per_unit")] or [1])
         self.customer_select = discord.ui.UserSelect(
-            placeholder="👤 เลือกลูกค้า", min_values=1, max_values=1, row=0
+            placeholder="👤 เลือกลูกค้า" + (" (มาหลายคนเลือกได้)" if max_cust > 1 else ""),
+            min_values=1,
+            max_values=min(max_cust, 25),
+            row=0,
         )
         self.customer_select.callback = self._on_customer
         self.add_item(self.customer_select)
@@ -299,9 +304,38 @@ class OpenBillWizard(discord.ui.View):
             return False
         return True
 
+    @property
+    def customer(self) -> discord.abc.User | None:
+        return self.customers[self.payer_index] if self.customers else None
+
+    @property
+    def customer_id(self) -> int | None:
+        return self.customer.id if self.customer else None
+
+    @property
+    def customer_ids(self) -> list[int]:
+        return [c.id for c in self.customers]
+
     async def _on_customer(self, interaction: discord.Interaction) -> None:
-        self.customer = self.customer_select.values[0]
-        self.customer_id = self.customer.id
+        self.customers = list(self.customer_select.values)
+        self.payer_index = 0
+        self._sync_payer_button()
+        await self._refresh(interaction)
+
+    def _sync_payer_button(self) -> None:
+        if len(self.customers) > 1:
+            self.payer_button.disabled = False
+            self.payer_button.label = f"คนจ่าย: {self.customer.display_name}"[:80]
+        else:
+            self.payer_button.disabled = True
+            self.payer_button.label = "คนจ่าย (มีลูกค้าหลายคน)"
+
+    @discord.ui.button(label="คนจ่าย (มีลูกค้าหลายคน)", emoji="💳", style=discord.ButtonStyle.secondary, row=4, disabled=True)
+    async def payer_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        """กดวนเลือกว่าลูกค้าคนไหนเป็นคนจ่าย (ได้ QR / นับ Top Donate)"""
+        if self.customers:
+            self.payer_index = (self.payer_index + 1) % len(self.customers)
+        self._sync_payer_button()
         await self._refresh(interaction)
 
     def _staff_members(self, opener: discord.Member) -> list[discord.Member]:
@@ -351,12 +385,29 @@ class OpenBillWizard(discord.ui.View):
             prefs = self.today.get(sid)
             if prefs is None:
                 continue
-            if self.customer_id in prefs.get("avoid_ids", []):
-                return f"<@{sid}> แจ้งไว้ว่าวันนี้ไม่รับลูกค้าคนนี้ค่ะ — เลือกพนักงานคนอื่นนะคะ"
+            blocked = [cid for cid in self.customer_ids if cid in prefs.get("avoid_ids", [])]
+            if blocked:
+                return f"<@{sid}> แจ้งไว้ว่าวันนี้ไม่รับ <@{blocked[0]}> ค่ะ — เลือกพนักงานคนอื่นนะคะ"
             missing = adult_cats - set(prefs.get("accepts", []))
             if missing:
                 labels = ", ".join(accept_label(self.cfg, k) for k in sorted(missing))
                 return f"<@{sid}> วันนี้ไม่รับ {labels} — บริการ 18+ เปิดบิลให้คนนี้ไม่ได้ค่ะ"
+        return None
+
+    def _group_problem(self) -> str | None:
+        """ลูกค้าหลายคนในบริการที่ต้องยินยอม (group_consent) — พนักงานทุกคนต้องติ๊ก 👥 ตอนเข้างานวันนี้"""
+        if len(self.customers) <= 1:
+            return None
+        needs = [k for k in dict.fromkeys(self.service_keys) if (self.cfg.service(k) or {}).get("group_consent")]
+        if not needs:
+            return None
+        for sid in self.staff_ids:
+            prefs = self.today.get(sid)
+            if prefs is None or "group_vip" not in prefs.get("accepts", []):
+                return (
+                    f"<@{sid}> ไม่ได้เลือกรับลูกค้าหลายคนในห้อง VIP วันนี้ — "
+                    f"**{self.cfg.service_names(needs)}** เปิดให้ลูกค้า {len(self.customers)} คนไม่ได้ค่ะ"
+                )
         return None
 
     def staff_warnings(self) -> list[str]:
@@ -418,7 +469,7 @@ class OpenBillWizard(discord.ui.View):
             return "ยังไม่ได้เลือก **ลูกค้า** ค่ะ"
         if not self.staff_ids:
             return "ยังไม่ได้เลือก **พนักงาน** ค่ะ"
-        if self.customer_id in self.staff_ids:
+        if set(self.customer_ids) & set(self.staff_ids):
             return "ลูกค้ากับพนักงานเป็นคนเดียวกันไม่ได้ค่ะ"
         if not self.service_keys:
             return "ยังไม่ได้เลือก **บริการ** ค่ะ"
@@ -426,8 +477,9 @@ class OpenBillWizard(discord.ui.View):
             return "บริการที่เลือกต้องระบุ **ห้อง** ด้วยค่ะ"
         return (
             self._avoid_problem()
-            or validate_selection(self.cfg, self.service_keys, len(self.staff_ids))
-            or adult_problem(self.cfg, self.customer, self.service_keys)
+            or validate_selection(self.cfg, self.service_keys, len(self.staff_ids), len(self.customers))
+            or self._group_problem()
+            or next((p for c in self.customers if (p := adult_problem(self.cfg, c, self.service_keys))), None)
         )
 
     async def _customer_tier(self) -> str | None:
@@ -441,9 +493,14 @@ class OpenBillWizard(discord.ui.View):
             description="เลือกข้อมูลให้ครบ แล้วกดปุ่ม **กรอกเวลา & ยืนยันเปิดบิล**",
             color=COLOR_MAIN,
         )
+        if len(self.customers) > 1:
+            others = " ".join(f"<@{c.id}>" for c in self.customers if c.id != self.customer_id)
+            customer_text = f"💳 <@{self.customer_id}> (คนจ่าย)\n+ {others}"
+        else:
+            customer_text = f"<@{self.customer_id}>" if self.customer_id else "*ยังไม่เลือก*"
         embed.add_field(
-            name="ลูกค้า",
-            value=f"<@{self.customer_id}>" if self.customer_id else "*ยังไม่เลือก*",
+            name="ลูกค้า" + (f" ({len(self.customers)} คน)" if len(self.customers) > 1 else ""),
+            value=customer_text,
             inline=True,
         )
         embed.add_field(
@@ -471,6 +528,7 @@ class OpenBillWizard(discord.ui.View):
                 customer_id=self.customer_id,
                 tier=tier,
                 staff_count=max(len(self.staff_ids), 1),
+                customer_count=max(len(self.customers), 1),
             )
             unit_note = (
                 "\n*บริการคิดต่อหน่วย: กรอกจำนวนในขั้นถัดไป (ราคานี้คิด 1 หน่วย)*"
@@ -539,6 +597,7 @@ class OpenBillWizard(discord.ui.View):
             guild=interaction.guild,
             opener=interaction.user,
             customer_id=self.customer_id,
+            co_customers=[cid for cid in self.customer_ids if cid != self.customer_id],
             staff_ids=self.staff_ids,
             service_keys=service_keys,
             room_key=self.room_key if self._requires_room() else None,
@@ -658,6 +717,7 @@ class ExtendWizard(discord.ui.View):
                 customer_id=job["customer_id"],
                 tier=tier,
                 staff_count=len(job_staff_ids(job)),
+                customer_count=1 + len(job.get("co_customers") or []),
             )
             embed.add_field(
                 name="แพ็กเกจต่อเวลา",
@@ -823,6 +883,7 @@ class ReceptionCog(commands.Cog):
         staff_ids: list[int],
         service_keys: list[str],
         room_key: str | None,
+        co_customers: list[int] | None = None,
         note: str,
         start: dt.datetime,
         job_type: str = "NORMAL",
@@ -839,6 +900,7 @@ class ReceptionCog(commands.Cog):
             customer_id=customer_id,
             tier=tier,
             staff_count=len(staff_ids),
+            customer_count=1 + len(co_customers or []),
             now_local=now_local,
         )
         staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
@@ -852,6 +914,7 @@ class ReceptionCog(commands.Cog):
             customer_id=customer_id,
             staff_id=staff_id,
             co_staff=co_staff,
+            co_customers=list(co_customers or []),
             services=service_keys,
             room=room_key,
             note=note or None,
@@ -916,6 +979,7 @@ class ReceptionCog(commands.Cog):
             customer_id=parent["customer_id"],
             tier=tier,
             staff_count=len(job_staff_ids(parent)),
+            customer_count=1 + len(parent.get("co_customers") or []),
             now_local=now_local,
         )
         staff_ids = job_staff_ids(parent)
@@ -932,6 +996,7 @@ class ReceptionCog(commands.Cog):
             customer_id=parent["customer_id"],
             staff_id=parent["staff_id"],
             co_staff=parent.get("co_staff") or [],
+            co_customers=parent.get("co_customers") or [],
             services=service_keys,
             room=parent.get("room"),
             note=f"ต่อเวลาจากบิล #{parent_id}",

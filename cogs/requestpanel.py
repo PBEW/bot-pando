@@ -35,8 +35,17 @@ def menu_embed(cfg) -> discord.Embed:
         if svc.get("description"):
             lines.append(svc["description"])
         if svc.get("multi_staff"):
+            inc = int(svc.get("included_staff", 1))
             lines.append(
-                f"รวมพนักงาน {svc.get('included_staff', 1)} คน · เพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท"
+                (f"รวมพนักงาน {inc} คน · " if inc > 1 else "")
+                + f"พนักงานเพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท (สูงสุด {svc.get('max_staff', 10)} คน)"
+            )
+        if int(svc.get("max_customers", 1)) > 1:
+            price = float(svc.get("extra_customer_price", 0))
+            lines.append(
+                f"มากับเพื่อนได้ถึง {svc['max_customers']} คน · "
+                + (f"เพิ่มคนละ {price:,.0f} บาท" if price else "ไม่คิดเพิ่ม")
+                + (" (ขึ้นอยู่กับพนักงานยินยอม)" if svc.get("group_consent") else "")
             )
         ext = next((e for k, e in extends.items() if k.startswith(svc["key"])), None)
         if ext:
