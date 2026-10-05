@@ -458,7 +458,7 @@ class AttendanceCog(commands.Cog):
                 fmt_datetime(start, tz),
                 fmt_datetime(end, tz),
                 await display_name(self.bot, guild, row["user_id"]),
-                str(row["user_id"]),
+                f"'{row['user_id']}",
                 round((end - start).total_seconds() / 3600, 2),
                 row.get("note") or "",
             ]

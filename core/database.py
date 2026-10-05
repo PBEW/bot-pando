@@ -147,6 +147,14 @@ CREATE TABLE IF NOT EXISTS attendance (
     prefs       TEXT                          -- JSON: งานที่รับวันนี้ {accepts, avoid_ids, avoid_text}
 );
 
+CREATE TABLE IF NOT EXISTS staff_payout (
+    user_id      INTEGER PRIMARY KEY,
+    bank         TEXT    NOT NULL,   -- ธนาคาร หรือ "พร้อมเพย์"
+    account_no   TEXT    NOT NULL,   -- เลขบัญชี / เบอร์หรือเลขบัตรพร้อมเพย์ (เก็บเป็นข้อความ กันเลข 0 นำหน้าหาย)
+    account_name TEXT    NOT NULL,
+    updated_at   TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS daily_checkin (
     day        TEXT    NOT NULL,   -- YYYY-MM-DD (เวลาไทย)
     user_id    INTEGER NOT NULL,
@@ -459,6 +467,21 @@ class Database:
             sql += " AND user_id = ?"
             params.append(user_id)
         return await self.fetchall(sql + " ORDER BY clock_in", params)
+
+    # -------------------------------------------------------- staff payout
+    async def get_payout(self, user_id: int) -> dict | None:
+        return await self.fetchone("SELECT * FROM staff_payout WHERE user_id = ?", (user_id,))
+
+    async def all_payouts(self) -> dict[int, dict]:
+        return {row["user_id"]: row for row in await self.fetchall("SELECT * FROM staff_payout")}
+
+    async def set_payout(self, user_id: int, bank: str, account_no: str, account_name: str, updated_at: str) -> None:
+        await self.execute(
+            "INSERT INTO staff_payout (user_id, bank, account_no, account_name, updated_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET bank = excluded.bank, account_no = excluded.account_no, "
+            "account_name = excluded.account_name, updated_at = excluded.updated_at",
+            (user_id, bank, account_no, account_name, updated_at),
+        )
 
     # ---------------------------------------------------------------- meta
     async def get_meta(self, key: str, default: str | None = None) -> str | None:

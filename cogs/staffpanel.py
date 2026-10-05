@@ -53,6 +53,38 @@ class StaffPanel(discord.ui.View):
             return
         await interaction.response.send_message(embed=await cog.today_embed(), ephemeral=True)
 
+    @discord.ui.button(label="บัญชีรับเงิน", emoji="💳", style=discord.ButtonStyle.secondary, custom_id="olp:staff:payout", row=2)
+    async def payout(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cog: StaffPanelCog = interaction.client.get_cog("StaffPanelCog")  # type: ignore[assignment]
+        await cog.open_payout(interaction)
+
+
+class PayoutModal(discord.ui.Modal, title="บัญชีรับเงินของฉัน"):
+    bank = discord.ui.TextInput(label="ธนาคาร หรือ พร้อมเพย์", placeholder="เช่น กสิกรไทย / พร้อมเพย์", max_length=40)
+    account_no = discord.ui.TextInput(
+        label="เลขบัญชี / เบอร์หรือเลขบัตรพร้อมเพย์", placeholder="เช่น 123-4-56789-0", max_length=25
+    )
+    account_name = discord.ui.TextInput(label="ชื่อบัญชี (ตามหน้าสมุด)", max_length=80)
+
+    def __init__(self, current: dict | None) -> None:
+        super().__init__()
+        if current:
+            self.bank.default = current["bank"]
+            self.account_no.default = current["account_no"]
+            self.account_name.default = current["account_name"]
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cog: StaffPanelCog = interaction.client.get_cog("StaffPanelCog")  # type: ignore[assignment]
+        await cog.save_payout(
+            interaction, str(self.bank.value).strip(), str(self.account_no.value).strip(), str(self.account_name.value).strip()
+        )
+
+
+def mask_account(no: str) -> str:
+    """แสดงเลขบัญชีแบบซ่อนบางส่วน (ใช้ในข้อความที่คนอื่นอาจเห็น)"""
+    digits = [c for c in no if c.isdigit()]
+    return f"xxx-{''.join(digits[-4:])}" if len(digits) > 4 else no
+
 
 class StaffPanelCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -62,6 +94,49 @@ class StaffPanelCog(commands.Cog):
 
     async def _deny(self, interaction: discord.Interaction) -> bool:
         return await self.bot.get_cog("AttendanceCog")._deny_if_not_staff(interaction)
+
+    # -------------------------------------------------------- บัญชีรับเงิน
+    async def open_payout(self, interaction: discord.Interaction) -> None:
+        if await self._deny(interaction):
+            return
+        await interaction.response.send_modal(PayoutModal(await self.db.get_payout(interaction.user.id)))
+
+    async def save_payout(self, interaction: discord.Interaction, bank: str, account_no: str, account_name: str) -> None:
+        cleaned = account_no.replace(" ", "")
+        digits = sum(c.isdigit() for c in cleaned)
+        if not all(c.isdigit() or c == "-" for c in cleaned) or not 9 <= digits <= 15:
+            await interaction.response.send_message(
+                "⚠️ เลขบัญชี/พร้อมเพย์ต้องเป็นตัวเลข 9–15 หลัก (ใส่ขีด - ได้) ค่ะ", ephemeral=True
+            )
+            return
+
+        now = dt.datetime.now(self.cfg.tz)
+        await self.db.set_payout(interaction.user.id, bank, cleaned, account_name, now.isoformat())
+        synced = await self.bot.sheets.upsert_payout_row(
+            [
+                interaction.user.display_name,
+                str(interaction.user.id),
+                bank,
+                cleaned,
+                account_name,
+                now.strftime("%d/%m/%Y %H:%M"),
+            ]
+        )
+        embed = discord.Embed(title="💳 บันทึกบัญชีรับเงินแล้ว", color=COLOR_OK)
+        embed.add_field(name="ธนาคาร / ช่องทาง", value=bank, inline=True)
+        embed.add_field(name="เลขบัญชี", value=f"`{cleaned}`", inline=True)
+        embed.add_field(name="ชื่อบัญชี", value=account_name, inline=False)
+        embed.set_footer(
+            text="ข้อมูลนี้เห็นเฉพาะคุณกับแอดมิน"
+            + (" · อัปเดตใน Google Sheets แล้ว" if synced else "")
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        payments = self.bot.get_cog("PaymentsCog")
+        if payments is not None:
+            await payments.notify_admin_text(
+                f"💳 {interaction.user.mention} อัปเดตบัญชีรับเงิน: {bank} {mask_account(cleaned)}"
+            )
 
     async def send_my_income(self, interaction: discord.Interaction) -> None:
         if await self._deny(interaction):
@@ -131,7 +206,7 @@ class StaffPanelCog(commands.Cog):
                 "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคุณ\n\n"
                 "**ลงเวลา** — 🟢 เข้างาน · ↩️ ยกเลิกเข้างาน (กดผิด)\n"
                 "**ของฉัน** — 🕒 ชั่วโมงของฉัน · 💰 รายได้รอบนี้ · 📋 งานของฉัน\n"
-                "**ทีม** — 👥 มาทำงานวันนี้\n\n"
+                "**ทีม** — 👥 มาทำงานวันนี้ · 💳 บัญชีรับเงิน (ใส่ไว้ให้แอดมินโอนส่วนแบ่ง)\n\n"
                 "*ไม่ต้องกดออกงาน บอทตัดยอดให้อัตโนมัติทุกตี 1*"
             ),
             color=COLOR_MAIN,

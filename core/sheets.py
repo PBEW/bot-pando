@@ -36,19 +36,29 @@ HEADERS = [
 ]
 
 # บล็อกสรุปด้านขวา (คอลัมน์ Q:S)
+PAYOUT_SHEET = "บัญชีพนักงาน"
+PAYOUT_HEADERS = ["พนักงาน", "ID พนักงาน", "ธนาคาร / ช่องทาง", "เลขบัญชี / พร้อมเพย์", "ชื่อบัญชี", "อัปเดตล่าสุด"]
+
+# บล็อกสรุปด้านขวา (คอลัมน์ Q:T) — คอลัมน์ T ดึงบัญชีรับเงินจากแท็บบัญชีพนักงาน (จับคู่ด้วยชื่อพนักงาน)
+_PAYOUT_LOOKUP = (
+    "=ARRAYFORMULA(IF(Q8:Q=\"\",,IFERROR(VLOOKUP(Q8:Q,{"
+    f"'{PAYOUT_SHEET}'!A2:A,'{PAYOUT_SHEET}'!C2:C&\" \"&'{PAYOUT_SHEET}'!D2:D&\" · \"&'{PAYOUT_SHEET}'!E2:E"
+    "},2,FALSE),\"⚠️ ยังไม่ได้ให้ข้อมูล\")))"
+)
 SUMMARY_BLOCK = [
-    ["📊 สรุปรอบนี้", "", ""],
-    ["💰 ยอดบิลรวม (In)", "=SUM(K2:K)", ""],
-    ["💃 จ่ายพนักงาน (Out)", "=SUM(L2:L)", ""],
-    ["🏠 รายได้เข้าร้าน", "=SUM(M2:M)", ""],
+    ["📊 สรุปรอบนี้", "", "", ""],
+    ["💰 ยอดบิลรวม (In)", "=SUM(K2:K)", "", ""],
+    ["💃 จ่ายพนักงาน (Out)", "=SUM(L2:L)", "", ""],
+    ["🏠 รายได้เข้าร้าน", "=SUM(M2:M)", "", ""],
     # บิลที่มีพนักงานหลายคนเขียนแถวละคน (เลขบิลซ้ำ) จึงต้องนับแบบไม่ซ้ำ
-    ["🧾 จำนวนบิล", "=COUNTUNIQUE(A2:A)", ""],
-    ["", "", ""],
-    ["พนักงาน", "ยอดบิล", "ส่วนแบ่ง"],
+    ["🧾 จำนวนบิล", "=COUNTUNIQUE(A2:A)", "", ""],
+    ["", "", "", ""],
+    ["พนักงาน", "ยอดบิล", "ส่วนแบ่ง (ต้องโอน)", "💳 บัญชีรับเงิน"],
     [
         "=IFERROR(UNIQUE(FILTER(G2:G,G2:G<>\"\")),\"\")",
         "=ARRAYFORMULA(IF(Q8:Q=\"\",,SUMIF(G:G,Q8:Q,K:K)))",
         "=ARRAYFORMULA(IF(Q8:Q=\"\",,SUMIF(G:G,Q8:Q,L:L)))",
+        _PAYOUT_LOOKUP,
     ],
 ]
 
@@ -165,7 +175,7 @@ def _box(sheet_id, r1, r2, c1, c2) -> dict:
 def cycle_style_requests(sheet_id: int) -> list[dict]:
     """คำสั่งจัดรูปแบบชีตรอบบิล (ส่งด้วย spreadsheet.batch_update)"""
     K, L, M, N = 10, 11, 12, 13
-    Q, R, S = 16, 17, 18
+    Q, R, S, T = 16, 17, 18, 19
     reqs: list[dict] = [
         {"updateSheetProperties": {
             "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
@@ -197,8 +207,10 @@ def cycle_style_requests(sheet_id: int) -> list[dict]:
         _cell(sheet_id, 3, 4, R, R + 1, {"backgroundColor": _rgb(BLUE_LIGHT), "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": _rgb(BLUE)}}),
         _cell(sheet_id, 4, 5, R, R + 1, {"numberFormat": {"type": "NUMBER", "pattern": "#,##0"}}),
         _box(sheet_id, 0, 5, Q, S + 1),
-        _cell(sheet_id, 6, 7, Q, S + 1, _header_fmt(PURPLE)),
+        _cell(sheet_id, 6, 7, Q, T + 1, _header_fmt(PURPLE)),
         _cell(sheet_id, 7, None, R, S + 1, {"numberFormat": {"type": "NUMBER", "pattern": MONEY}}),
+        _cell(sheet_id, 7, None, S, S + 1, {"backgroundColor": _rgb(ORANGE_LIGHT), "textFormat": {"bold": True}}),
+        _cell(sheet_id, 7, None, T, T + 1, {"wrapStrategy": "WRAP"}),
         _cell(sheet_id, 7, None, Q, Q + 1, {"textFormat": {"bold": True}}),
         # ไฮไลต์ทั้งแถว: โดเนท = ชมพู, ต่อเวลา = เหลือง
         _row_rule(sheet_id, '=$N2="โดเนท"', PINK_LIGHT, 0),
@@ -206,7 +218,7 @@ def cycle_style_requests(sheet_id: int) -> list[dict]:
         # ปุ่มตัวกรอง/เรียงลำดับบนหัวตาราง
         {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 16)}}},
     ]
-    widths = {0: 70, 1: 95, 2: 65, 3: 65, 4: 150, 6: 150, 8: 230, 9: 140, K: 120, L: 130, M: 120, N: 80, 15: 240, Q: 200, R: 130, S: 130}
+    widths = {0: 70, 1: 95, 2: 65, 3: 65, 4: 150, 6: 150, 8: 230, 9: 140, K: 120, L: 130, M: 120, N: 80, 15: 240, Q: 200, R: 130, S: 140, T: 300}
     reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
     reqs += [_hide(sheet_id, col) for col in (5, 7, 14)]  # ID ลูกค้า, ID พนักงาน, ระดับ VIP
     return reqs
@@ -233,6 +245,28 @@ def attendance_style_requests(sheet_id: int) -> list[dict]:
     widths = {0: 70, 1: 100, 2: 140, 3: 140, 4: 160, 6: 100, 7: 260}
     reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
     reqs.append(_hide(sheet_id, 5))
+    return reqs
+
+
+def payout_style_requests(sheet_id: int) -> list[dict]:
+    reqs: list[dict] = [
+        {"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+        _row_height(sheet_id, 0, 36),
+        _cell(sheet_id, 0, 1, 0, 6, _header_fmt(PURPLE)),
+        _cell(sheet_id, 1, None, 0, 1, {"textFormat": {"bold": True}}),
+        # เลขบัญชีเป็นข้อความเสมอ (กันเลข 0 นำหน้าหาย) ตัวหนาให้อ่านง่ายตอนโอน
+        _cell(sheet_id, 1, None, 3, 4, {
+            "numberFormat": {"type": "TEXT"},
+            "backgroundColor": _rgb(ORANGE_LIGHT),
+            "textFormat": {"bold": True, "fontSize": 11},
+        }),
+    ]
+    widths = {0: 160, 2: 150, 3: 190, 4: 200, 5: 140}
+    reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
+    reqs.append(_hide(sheet_id, 1))
     return reqs
 
 
@@ -333,7 +367,12 @@ class SheetsClient:
 
     def _append_sync(self, sheet_title: str, row: list) -> None:
         ws = self._get_or_create_ws(sheet_title)
-        ws.append_row(row, value_input_option="USER_ENTERED", table_range="A1")
+        # ไม่ใช้ append_row: Google จะนับบล็อกสรุปด้านขวา (Q:T) เป็นส่วนของตาราง
+        # แล้วเขียนแถวใหม่ไว้ใต้บล็อกสรุป ทำให้มีแถวว่างแทรก — เขียนต่อจากแถวสุดท้ายของคอลัมน์ A แทน
+        line = len(ws.col_values(1)) + 1
+        if line > ws.row_count:
+            ws.add_rows(200)
+        ws.update(values=[row], range_name=f"A{line}:P{line}", value_input_option="USER_ENTERED")
 
     async def append_attendance_row(self, row: list) -> bool:
         if not self.ready:
@@ -378,8 +417,48 @@ class SheetsClient:
         async with self._lock:
             return await asyncio.to_thread(self._restyle_sync, cycle_title)
 
+    # ------------------------------------------------------ บัญชีพนักงาน
+    def _payout_ws(self):
+        import gspread
+
+        assert self._spreadsheet is not None
+        try:
+            return self._spreadsheet.worksheet(PAYOUT_SHEET)
+        except gspread.WorksheetNotFound:
+            ws = self._spreadsheet.add_worksheet(title=PAYOUT_SHEET, rows=200, cols=6)
+            self._init_payout_ws(ws)
+            return ws
+
+    def _init_payout_ws(self, ws) -> None:
+        assert self._spreadsheet is not None
+        ws.update(values=[PAYOUT_HEADERS], range_name="A1")
+        self._spreadsheet.batch_update({"requests": payout_style_requests(ws.id)})
+
+    async def upsert_payout_row(self, row: list[str]) -> bool:
+        """เขียน/อัปเดตบัญชีรับเงินของพนักงาน 1 คน (row ตาม PAYOUT_HEADERS, คอลัมน์ B = ID)"""
+        if not self.ready:
+            return False
+        async with self._lock:
+            try:
+                await asyncio.to_thread(self._upsert_payout_sync, row)
+                return True
+            except Exception:  # noqa: BLE001
+                log.exception("บันทึกบัญชีพนักงานลง Google Sheets ไม่สำเร็จ")
+                return False
+
+    def _upsert_payout_sync(self, row: list[str]) -> None:
+        ws = self._payout_ws()
+        ids = ws.col_values(2)  # RAW: ID เก็บเป็นข้อความ
+        if row[1] in ids:
+            line = ids.index(row[1]) + 1
+            ws.update(values=[row], range_name=f"A{line}:F{line}", value_input_option="RAW")
+        else:
+            ws.append_row(row, value_input_option="RAW", table_range="A1")
+
     def _restyle_sync(self, cycle_title: str) -> list[str]:
         done = []
+        self._init_payout_ws(self._payout_ws())
+        done.append(PAYOUT_SHEET)
         self._init_ws(self._get_or_create_ws(cycle_title))
         done.append(cycle_title)
         self._init_attendance_ws(self._attendance_ws())
