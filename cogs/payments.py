@@ -460,7 +460,7 @@ class PaymentsCog(commands.Cog):
                 gross,
                 share,
                 round(gross - share, 2),
-                {"EXTEND": "ต่อเวลา", "DONATE": "โดเนท"}.get(job["job_type"], "ปกติ"),
+                {"EXTEND": "ต่อเวลา", "DONATE": "โดเนท", "BONUS": "โบนัส"}.get(job["job_type"], "ปกติ"),
                 self.cfg.vip_tier_name(job.get("vip_tier")) if job.get("vip_tier") else "ลูกค้าทั่วไป",
                 group_note + (job.get("note") or ""),
             ])

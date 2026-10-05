@@ -370,7 +370,10 @@ class OpenBillWizard(discord.ui.View):
         if not self.voucher:
             return 0.0, None
         item = coins.reward(self.cfg, self.voucher["reward_key"])
-        discount, problem = coins.voucher_discount(self.cfg, item, self.service_keys, quote.amounts)
+        staff_share, _ = split_revenue(self.cfg, self.staff_ids or [0], quote.total_price, quote.amounts)
+        discount, problem = coins.voucher_discount(
+            self.cfg, item, self.service_keys, quote.amounts, total=quote.total_price, staff_share=staff_share
+        )
         return min(discount, quote.total_price), problem
 
     def _staff_members(self, opener: discord.Member) -> list[discord.Member]:
@@ -636,6 +639,19 @@ class OpenBillWizard(discord.ui.View):
 
         # บริการคิดต่อหน่วยเก็บเป็น key ซ้ำตามจำนวน (เช่น Drink Friend 3 shot = key 3 ตัว)
         service_keys = [key for key in self.service_keys for _ in range(quantities.get(key, 1))]
+
+        if self.voucher:
+            quote = await quote_services(
+                self.cfg, self.cog.db, service_keys, customer_id=self.customer_id, tier=None,
+                staff_count=len(self.staff_ids), customer_count=len(self.customers),
+            )
+            item = coins.reward(self.cfg, self.voucher["reward_key"])
+            _, voucher_problem = coins.voucher_discount(
+                self.cfg, item, service_keys, quote.amounts, total=quote.total_price
+            )
+            if voucher_problem:
+                await interaction.response.send_message(f"🎟️ {voucher_problem}", ephemeral=True)
+                return
 
         await interaction.response.defer()
         job_id = await self.cog.create_job(
@@ -962,7 +978,9 @@ class ReceptionCog(commands.Cog):
                 voucher_id = None
             else:
                 item = coins.reward(self.cfg, voucher["reward_key"])
-                discount, problem = coins.voucher_discount(self.cfg, item, service_keys, quote.amounts)
+                discount, problem = coins.voucher_discount(
+                    self.cfg, item, service_keys, quote.amounts, total=quote.total_price, staff_share=staff_share
+                )
                 discount = 0.0 if problem else min(discount, quote.total_price)
         total_price = round(quote.total_price - discount, 2)
         shop_share = round(total_price - staff_share, 2)

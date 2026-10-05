@@ -33,7 +33,7 @@ def job_embed(cfg: Config, job: dict, *, title: str, color: int = COLOR_MAIN) ->
     embed.add_field(name="สถานะ", value=STATUS_LABEL.get(job["status"], job["status"]), inline=True)
     embed.add_field(
         name="ประเภท",
-        value={"EXTEND": "⏱️ ต่อเวลา", "DONATE": "💜 โดเนท"}.get(job["job_type"], "🧾 บิลปกติ"),
+        value={"EXTEND": "⏱️ ต่อเวลา", "DONATE": "💜 โดเนท", "BONUS": "🎁 โบนัสพนักงาน"}.get(job["job_type"], "🧾 บิลปกติ"),
         inline=True,
     )
     others = [c for c in job.get("co_customers") or [] if c != job["customer_id"]]
