@@ -119,7 +119,7 @@ class ClockInView(discord.ui.View):
         self.prefs = prefs
 
         options = accept_options(cog.cfg)
-        selected = set(prefs["accepts"]) or {o["key"] for o in options}
+        selected = set(prefs["accepts"]) or {o["key"] for o in options if o.get("default", True)}
         self.accept_select = discord.ui.Select(
             placeholder="วันนี้รับงานแบบไหนบ้าง (เลือกได้หลายข้อ)",
             min_values=1,
@@ -251,7 +251,7 @@ class AttendanceCog(commands.Cog):
         embed = discord.Embed(
             title="✏️ แก้ไขงานที่รับวันนี้" if current else "🟢 เข้างาน — วันนี้รับงานแบบไหน?",
             description=(
-                "1) เลือกงานที่รับวันนี้ (เลือกได้หลายข้อ)\n"
+                "1) เลือกงานที่รับวันนี้ (เลือกได้หลายข้อ) — 👥 รับลูกค้าหลายคนในห้อง VIP ต้องติ๊กเองเท่านั้น\n"
                 "2) เลือกคนที่ไม่รับเข้าห้องด้วย (ไม่บังคับ — แอดมินจะเปิดบิลคู่กับคนนี้ไม่ได้)\n"
                 "3) กด **ยืนยันเข้างาน** แล้วพิมพ์ชื่อ/หมายเหตุเพิ่มได้\n\n"
                 "*รายชื่อคนที่ไม่รับ เห็นเฉพาะคุณกับแอดมินเท่านั้น*"

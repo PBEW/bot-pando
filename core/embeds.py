@@ -36,7 +36,12 @@ def job_embed(cfg: Config, job: dict, *, title: str, color: int = COLOR_MAIN) ->
         value={"EXTEND": "⏱️ ต่อเวลา", "DONATE": "💜 โดเนท"}.get(job["job_type"], "🧾 บิลปกติ"),
         inline=True,
     )
-    embed.add_field(name="ลูกค้า", value=f"<@{job['customer_id']}>", inline=True)
+    others = [c for c in job.get("co_customers") or [] if c != job["customer_id"]]
+    embed.add_field(
+        name="ลูกค้า" + (f" ({1 + len(others)} คน)" if others else ""),
+        value=f"<@{job['customer_id']}>" + (f" (คนจ่าย)\n+ {' '.join(f'<@{c}>' for c in others)}" if others else ""),
+        inline=True,
+    )
     staff = [job["staff_id"], *[s for s in job.get("co_staff") or [] if s != job["staff_id"]]]
     embed.add_field(
         name="พนักงาน" if len(staff) == 1 else f"พนักงาน ({len(staff)} คน)",

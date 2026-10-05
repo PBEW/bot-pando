@@ -389,8 +389,18 @@ class ServicesView(AdminView):
             embed.add_field(
                 name="หลายพนักงาน",
                 value=(
-                    f"รวม {svc.get('included_staff', 1)} คน · เพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท · "
-                    f"สูงสุด {svc.get('max_staff', 10)} คน"
+                    f"รวม {svc.get('included_staff', 1)} คน · เพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท "
+                    f"(พนักงานได้ {svc.get('extra_staff_percent', 100):g}%) · สูงสุด {svc.get('max_staff', 10)} คน"
+                ),
+                inline=False,
+            )
+        if int(svc.get("max_customers", 1)) > 1:
+            embed.add_field(
+                name="ลูกค้าหลายคน",
+                value=(
+                    f"สูงสุด {svc['max_customers']} คน · เพิ่มคนละ {svc.get('extra_customer_price', 0):,.0f} บาท "
+                    f"(พนักงานได้ {svc.get('extra_customer_percent', 100):g}%)"
+                    + (" · 👥 ต้องให้พนักงานยินยอมตอนเข้างาน" if svc.get("group_consent") else "")
                 ),
                 inline=False,
             )
@@ -437,6 +447,17 @@ class ServicesView(AdminView):
             await interaction.response.send_message("เลือกบริการก่อนค่ะ", ephemeral=True)
             return
         await interaction.response.send_modal(ServiceExtraModal(self, svc))
+
+    @discord.ui.button(label="ลูกค้าหลายคน", emoji="👤", style=discord.ButtonStyle.secondary, row=2)
+    async def customers(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        svc = self._svc()
+        if svc is None:
+            await interaction.response.send_message("เลือกบริการก่อนค่ะ", ephemeral=True)
+            return
+        if svc.get("per_unit"):
+            await interaction.response.send_message("บริการคิดต่อหน่วยไม่จำกัดจำนวนลูกค้าอยู่แล้วค่ะ", ephemeral=True)
+            return
+        await interaction.response.send_modal(CustomerModal(self, svc))
 
     @discord.ui.button(label="เพิ่มบริการ", emoji="➕", style=discord.ButtonStyle.success, row=3)
     async def add(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -560,11 +581,14 @@ class ServiceExtraModal(discord.ui.Modal):
         )
         self.add_item(self.description)
         self.fields: dict[str, discord.ui.TextInput] = {}
-        if svc.get("multi_staff"):
+        if not svc.get("per_unit"):
+            # พนักงานสูงสุด 1 = ปิดหลายพนักงาน · มากกว่า 1 = เปิด
+            multi = bool(svc.get("multi_staff"))
             for key, label, default in (
-                ("included_staff", "จำนวนพนักงานที่รวมในราคา", svc.get("included_staff", 1)),
+                ("max_staff", "พนักงานสูงสุดต่อบิล (1 = คนเดียว)", svc.get("max_staff", 10) if multi else 1),
+                ("included_staff", "จำนวนพนักงานที่รวมในราคาแล้ว", svc.get("included_staff", 1)),
                 ("extra_staff_price", "ค่าพนักงานเพิ่ม (บาท/คน)", svc.get("extra_staff_price", 0)),
-                ("max_staff", "พนักงานสูงสุดต่อบิล", svc.get("max_staff", 10)),
+                ("extra_staff_percent", "พนักงานได้กี่ % ของค่าพนักงานเพิ่ม", svc.get("extra_staff_percent", 100)),
             ):
                 self.fields[key] = discord.ui.TextInput(label=label, default=f"{default:g}", max_length=6)
                 self.add_item(self.fields[key])
@@ -583,6 +607,8 @@ class ServiceExtraModal(discord.ui.Modal):
                     values[key] = str(field.value).strip() or "หน่วย"
                 elif key == "extra_staff_price":
                     values[key] = _num(field.value, lo=0, hi=100_000, name="ค่าพนักงานเพิ่ม")
+                elif key == "extra_staff_percent":
+                    values[key] = _num(field.value, lo=0, hi=100, name="% ของค่าพนักงานเพิ่ม")
                 else:
                     values[key] = int(_num(field.value, lo=1, hi=25, name="จำนวนพนักงาน"))
         except ValueError as exc:
@@ -593,9 +619,69 @@ class ServiceExtraModal(discord.ui.Modal):
             svc["description"] = desc
         else:
             svc.pop("description", None)
+        if "max_staff" in values:
+            if values["included_staff"] > values["max_staff"]:
+                await interaction.response.send_message(
+                    "⚠️ จำนวนที่รวมในราคาต้องไม่มากกว่าพนักงานสูงสุดค่ะ", ephemeral=True
+                )
+                return
+            values["multi_staff"] = values["max_staff"] > 1
         svc.update(values)
         _save(interaction)
-        await log_change(interaction.client, interaction.user, f"แก้รายละเอียดบริการ **{svc['name']}**")
+        note = ""
+        if svc.get("multi_staff"):
+            note = (
+                f" — หลายพนักงาน สูงสุด {svc['max_staff']} คน · เพิ่มคนละ {svc['extra_staff_price']:,.0f} บาท "
+                f"(พนักงานได้ {svc.get('extra_staff_percent', 100):g}%)"
+            )
+        await log_change(interaction.client, interaction.user, f"แก้รายละเอียดบริการ **{svc['name']}**{note}")
+        view = ServicesView(self.view.cfg, svc["key"])
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+class CustomerModal(discord.ui.Modal, title="ลูกค้าหลายคน"):
+    """ตั้งจำนวนลูกค้าสูงสุด / ค่าลูกค้าเพิ่ม / ต้องให้พนักงานยินยอมหรือไม่"""
+
+    max_customers = discord.ui.TextInput(label="ลูกค้าสูงสุดต่อบิล (1 = คนเดียว)", max_length=2)
+    price = discord.ui.TextInput(label="ค่าลูกค้าเพิ่ม (บาท/คน, 0 = ฟรี)", max_length=8)
+    percent = discord.ui.TextInput(label="พนักงานได้กี่ % ของค่าลูกค้าเพิ่ม", max_length=5)
+    consent = discord.ui.TextInput(label="ต้องให้พนักงานติ๊กยินยอม? (ใช่/ไม่)", max_length=4)
+
+    def __init__(self, view: ServicesView, svc: dict) -> None:
+        super().__init__()
+        self.view = view
+        self.svc = svc
+        self.max_customers.default = str(svc.get("max_customers", 1))
+        self.price.default = f"{svc.get('extra_customer_price', 0):g}"
+        self.percent.default = f"{svc.get('extra_customer_percent', 100):g}"
+        self.consent.default = "ใช่" if svc.get("group_consent") else "ไม่"
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            mx = int(_num(self.max_customers.value, lo=1, hi=25, name="ลูกค้าสูงสุด"))
+            price = _num(self.price.value, lo=0, hi=100_000, name="ค่าลูกค้าเพิ่ม")
+            pct = _num(self.percent.value, lo=0, hi=100, name="% ของค่าลูกค้าเพิ่ม")
+        except ValueError as exc:
+            await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
+            return
+        answer = str(self.consent.value).strip().lower()
+        if answer not in ("ใช่", "ไม่", "yes", "no", "y", "n"):
+            await interaction.response.send_message("⚠️ ช่องยินยอมให้ตอบ **ใช่** หรือ **ไม่** ค่ะ", ephemeral=True)
+            return
+        svc = self.svc
+        svc.update(max_customers=mx, extra_customer_price=price, extra_customer_percent=pct)
+        if answer in ("ใช่", "yes", "y"):
+            svc["group_consent"] = True
+        else:
+            svc.pop("group_consent", None)
+        _save(interaction)
+        text = (
+            f"ตั้งลูกค้าหลายคนของ **{svc['name']}** — สูงสุด {mx} คน · เพิ่มคนละ {price:,.0f} บาท "
+            f"(พนักงานได้ {pct:g}%)" + (" · ต้องให้พนักงานยินยอม" if svc.get("group_consent") else "")
+            if mx > 1
+            else f"ตั้ง **{svc['name']}** ให้รับลูกค้าได้คนเดียว"
+        )
+        await log_change(interaction.client, interaction.user, text)
         view = ServicesView(self.view.cfg, svc["key"])
         await interaction.response.edit_message(embed=view.embed(), view=view)
 
