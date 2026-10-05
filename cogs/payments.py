@@ -314,6 +314,9 @@ class PaymentsCog(commands.Cog):
         await self.db.update_job(job_id, status="PAID", paid_at=to_iso(now_utc()))
         await self.db.clear_pending_slip(job["customer_id"])
         job = await self.db.get_job(job_id)
+        coins_cog = self.bot.get_cog("CoinsCog")
+        if coins_cog is not None:
+            await coins_cog.on_job_paid(job)
 
         await send_dm(
             self.bot,
@@ -351,6 +354,9 @@ class PaymentsCog(commands.Cog):
 
         await self.db.update_job(job_id, status="CANCELLED", cancelled_at=to_iso(now_utc()))
         await self.db.clear_pending_slip(job["customer_id"])
+        coins_cog = self.bot.get_cog("CoinsCog")
+        if coins_cog is not None:
+            await coins_cog.on_job_cancelled(job)
 
         # คืนสิทธิ์ฟรีที่เคยล็อกไว้ตอนเปิดบิล (ถ้ามี)
         if job.get("quota_services") and job.get("quota_cycle"):
@@ -386,6 +392,9 @@ class PaymentsCog(commands.Cog):
     async def reject_job_by_staff(self, job: dict, staff: discord.abc.User, reason: str) -> None:
         """พนักงานปฏิเสธงานเพราะแอดมินคีย์บิลผิด — ยกเลิกบิลเงียบๆ (ลูกค้ายังไม่เคยรู้เรื่องบิลนี้)"""
         await self.db.update_job(job["id"], status="CANCELLED", cancelled_at=to_iso(now_utc()))
+        coins_cog = self.bot.get_cog("CoinsCog")
+        if coins_cog is not None:
+            await coins_cog.on_job_cancelled(job)  # คืนคูปองที่ใช้กับบิลนี้
 
         if job.get("quota_services") and job.get("quota_cycle"):
             await release_quota_for_job(
@@ -431,6 +440,8 @@ class PaymentsCog(commands.Cog):
         group_note = f"ทีม {len(split)} คน · " if len(split) > 1 else ""
         if job.get("co_customers"):
             group_note += f"ลูกค้า {1 + len(job['co_customers'])} คน · "
+        if job.get("coin_cost"):
+            group_note += f"🪙 คูปอง -{job['coin_cost']:,.0f} (ร้านออก) · "
 
         # บิลที่มีพนักงานหลายคน (Party Room) แยกเป็นแถวละคน เพื่อให้สูตรสรุปรายพนักงานในชีตถูกต้อง
         rows = []

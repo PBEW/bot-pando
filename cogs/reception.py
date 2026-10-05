@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core import coins
 from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, job_embed
 from core.pricing import (
     job_staff_ids,
@@ -218,6 +219,7 @@ class OpenBillWizard(discord.ui.View):
         self.today = today or {}  # {staff_id: prefs} ของคนที่กดเข้างานวันนี้
         self.customers: list[discord.abc.User] = []   # ลูกค้าทุกคนในบิล
         self.payer_index = 0                            # คนจ่าย = customers[payer_index]
+        self.voucher: dict | None = None                # คูปองเหรียญ Pandora ของคนจ่าย
         self.staff_ids: list[int] = []
         self.service_keys: list[str] = []
         self.room_key: str | None = None
@@ -320,6 +322,7 @@ class OpenBillWizard(discord.ui.View):
         self.customers = list(self.customer_select.values)
         self.payer_index = 0
         self._sync_payer_button()
+        self._set_voucher(None)
         await self._refresh(interaction)
 
     def _sync_payer_button(self) -> None:
@@ -336,7 +339,39 @@ class OpenBillWizard(discord.ui.View):
         if self.customers:
             self.payer_index = (self.payer_index + 1) % len(self.customers)
         self._sync_payer_button()
+        self._set_voucher(None)  # คูปองเป็นของคนจ่าย เปลี่ยนคนจ่าย = ล้างคูปอง
         await self._refresh(interaction)
+
+    def _set_voucher(self, voucher: dict | None) -> None:
+        self.voucher = voucher
+        if voucher is None:
+            self.voucher_button.label = "คูปอง: ไม่ใช้"
+        else:
+            item = coins.reward(self.cfg, voucher["reward_key"]) or {}
+            self.voucher_button.label = f"คูปอง: V{voucher['id']} {item.get('name', '')}"[:80]
+
+    @discord.ui.button(label="คูปอง: ไม่ใช้", emoji="🎟️", style=discord.ButtonStyle.secondary, row=4)
+    async def voucher_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        """กดวนเลือกคูปองเหรียญ Pandora ของคนจ่าย (ไม่ใช้ → V1 → V2 → ... → ไม่ใช้)"""
+        if not self.customer_id or not coins.enabled(self.cfg):
+            await interaction.response.send_message("เลือกลูกค้าก่อนค่ะ", ephemeral=True)
+            return
+        vouchers = await coins.active_vouchers(self.cog.db, self.customer_id, bill_only=True, cfg=self.cfg)
+        if not vouchers:
+            await interaction.response.send_message("ลูกค้าคนจ่ายไม่มีคูปองที่ใช้กับบิลได้ค่ะ", ephemeral=True)
+            return
+        ids = [v["id"] for v in vouchers]
+        current = ids.index(self.voucher["id"]) if self.voucher and self.voucher["id"] in ids else -1
+        nxt = current + 1
+        self._set_voucher(vouchers[nxt] if nxt < len(vouchers) else None)
+        await self._refresh(interaction)
+
+    def voucher_effect(self, quote) -> tuple[float, str | None]:
+        if not self.voucher:
+            return 0.0, None
+        item = coins.reward(self.cfg, self.voucher["reward_key"])
+        discount, problem = coins.voucher_discount(self.cfg, item, self.service_keys, quote.amounts)
+        return min(discount, quote.total_price), problem
 
     def _staff_members(self, opener: discord.Member) -> list[discord.Member]:
         guild = getattr(opener, "guild", None)
@@ -475,6 +510,11 @@ class OpenBillWizard(discord.ui.View):
             return "ยังไม่ได้เลือก **บริการ** ค่ะ"
         if self._requires_room() and not self.room_key:
             return "บริการที่เลือกต้องระบุ **ห้อง** ด้วยค่ะ"
+        if self.voucher:
+            item = coins.reward(self.cfg, self.voucher["reward_key"])
+            _, voucher_problem = coins.voucher_discount(self.cfg, item, self.service_keys, {})
+            if voucher_problem:
+                return f"🎟️ {voucher_problem}"
         return (
             self._avoid_problem()
             or validate_selection(self.cfg, self.service_keys, len(self.staff_ids), len(self.customers))
@@ -535,11 +575,16 @@ class OpenBillWizard(discord.ui.View):
                 if self.unit_service_keys()
                 else ""
             )
+            discount, voucher_problem = self.voucher_effect(quote)
+            voucher_line = ""
+            if self.voucher and not voucher_problem:
+                item = coins.reward(self.cfg, self.voucher["reward_key"]) or {}
+                voucher_line = f"\n• 🎟️ คูปอง {item.get('name', '')} — -{money(discount)} (ร้านออก พนักงานได้เต็ม)"
             embed.add_field(
                 name="ราคาโดยประมาณ",
                 value=(
-                    f"{quote.breakdown}\n"
-                    f"**รวม {money(quote.total_price)}** · {quote.duration_minutes} นาที"
+                    f"{quote.breakdown}{voucher_line}\n"
+                    f"**รวม {money(quote.total_price - discount)}** · {quote.duration_minutes} นาที"
                     + (f"\n{self.cfg.vip_tier_name(tier)} — คิดราคา/สิทธิ์ตามระดับอัตโนมัติ" if tier else "")
                     + unit_note
                 ),
@@ -598,6 +643,7 @@ class OpenBillWizard(discord.ui.View):
             opener=interaction.user,
             customer_id=self.customer_id,
             co_customers=[cid for cid in self.customer_ids if cid != self.customer_id],
+            voucher_id=self.voucher["id"] if self.voucher else None,
             staff_ids=self.staff_ids,
             service_keys=service_keys,
             room_key=self.room_key if self._requires_room() else None,
@@ -884,6 +930,7 @@ class ReceptionCog(commands.Cog):
         service_keys: list[str],
         room_key: str | None,
         co_customers: list[int] | None = None,
+        voucher_id: int | None = None,
         note: str,
         start: dt.datetime,
         job_type: str = "NORMAL",
@@ -904,6 +951,21 @@ class ReceptionCog(commands.Cog):
             now_local=now_local,
         )
         staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
+
+        # คูปองเหรียญ Pandora: ลดยอดที่ลูกค้าจ่าย แต่พนักงานยังได้ส่วนแบ่งเต็ม (ร้านออกส่วนลดเอง)
+        discount = 0.0
+        if voucher_id:
+            voucher = await self.db.fetchone(
+                "SELECT * FROM coin_vouchers WHERE id = ? AND user_id = ? AND status = 'ACTIVE'", (voucher_id, customer_id)
+            )
+            if voucher is None:
+                voucher_id = None
+            else:
+                item = coins.reward(self.cfg, voucher["reward_key"])
+                discount, problem = coins.voucher_discount(self.cfg, item, service_keys, quote.amounts)
+                discount = 0.0 if problem else min(discount, quote.total_price)
+        total_price = round(quote.total_price - discount, 2)
+        shop_share = round(total_price - staff_share, 2)
         end = start + dt.timedelta(minutes=quote.duration_minutes)
         cycle = cycle_month_key(now_local)
 
@@ -924,14 +986,20 @@ class ReceptionCog(commands.Cog):
             vip_tier=tier,
             quota_services=quote.quota_services,
             quota_cycle=cycle if quote.quota_services else None,
-            total_price=quote.total_price,
+            total_price=total_price,
             staff_share=staff_share,
             shop_share=shop_share,
+            voucher_id=voucher_id,
+            coin_cost=discount,
             status="PENDING_STAFF",
             opened_by=opener.id,
             created_at=to_iso(now_utc()),
         )
         await reserve_quota_for_job(self.db, customer_id, quote, cycle)
+        if voucher_id:
+            coins_cog = self.bot.get_cog("CoinsCog")
+            if coins_cog is not None:
+                await coins_cog.use_voucher(voucher_id, job_id)
 
         job = await self.db.get_job(job_id)
         shares = {sid: share for sid, _, share in job_staff_split(self.cfg, job)}
@@ -1095,6 +1163,10 @@ class ReceptionCog(commands.Cog):
                         color=COLOR_OK,
                     ),
                 )
+        if job["total_price"] <= 0:
+            await payments.mark_job_paid(job_id, self.bot.user)
+            await payments.notify_admin_text(f"🎟️ บิล `#{job_id}` ฟรีทั้งบิลจากคูปอง — บันทึกชำระแล้วอัตโนมัติ")
+            return
         await payments.start_job_payment(job)
         await payments.notify_admin_text(
             f"✅ พนักงานรับงานบิล `#{job_id}` ครบ ({len(team)}/{len(team)}) — ส่งยอดชำระให้ลูกค้าเรียบร้อย"

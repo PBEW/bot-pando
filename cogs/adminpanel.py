@@ -170,7 +170,7 @@ HELP_TEXT = (
     "**บิล**\n"
     "`/bill info` ดูบิล · `/bill paid` ยืนยันชำระด้วยมือ · `/bill cancel` ยกเลิกบิล\n\n"
     "**อื่น ๆ**\n"
-    "`/top_donate` อันดับโดเนท · `/menu` เมนูร้าน · `/attendance_fix` แก้เวลาเข้างาน · `/cutoff` ตัดรอบ · `/summary` สรุปยอด\n"
+    "`/top_donate` อันดับโดเนท · `/coins give|check|event` เหรียญ Pandora · `/menu` เมนูร้าน · `/attendance_fix` แก้เวลาเข้างาน · `/cutoff` ตัดรอบ · `/summary` สรุปยอด\n"
     "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` โพสต์กระดานเช็คชื่อ · `/staff_today` มาทำงานวันนี้ · `/health` สถานะระบบ · `/sheets_format` จัดรูปแบบชีต · `/reload_config` โหลด config"
 )
 
