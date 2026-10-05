@@ -84,7 +84,7 @@
       "included_staff": 2,
       "extra_staff_price": 39,
       "max_staff": 10,
-      "description": "ห้องปาร์ตี้ส่วนตัว รวมพนักงาน 2 คน เพิ่มคนละ 39 บาท (จองล่วงหน้า 2 วัน)",
+      "description": "ห้องปาร์ตี้ส่วนตัว รวมพนักงาน 2 คน เพิ่มคนละ 39 บาท",
       "pricing": {
         "normal": 149
       },
@@ -236,9 +236,6 @@
   },
   "ticket": {
     "timeout_minutes": 10
-  },
-  "party_booking": {
-    "advance_days": 2
   },
   "review": {
     "window_hours": 24,

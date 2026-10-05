@@ -1,4 +1,4 @@
-"""Request Panel สำหรับลูกค้า: สอบถามเจ้าหน้าที่ / ดูเมนู & ราคา / จอง Party Room / Top Donate (+VIP ถ้าเปิดใช้)"""
+"""Request Panel สำหรับลูกค้า: สอบถามเจ้าหน้าที่ / ดูเมนู & ราคา / พนักงานวันนี้ / โดเนท / Top Donate (+VIP ถ้าเปิดใช้)"""
 from __future__ import annotations
 
 import datetime as dt
@@ -60,44 +60,6 @@ def menu_embed(cfg) -> discord.Embed:
     return embed
 
 
-class PartyBookingModal(discord.ui.Modal, title="จอง Private Party Room"):
-    when = discord.ui.TextInput(
-        label="วันและเวลาที่ต้องการ",
-        placeholder="เช่น 12/10 21:00",
-        required=True,
-        max_length=40,
-    )
-    people = discord.ui.TextInput(
-        label="จำนวนคนทั้งหมด (รวมเพื่อน+พนักงาน สูงสุด 10)",
-        placeholder="เช่น 6",
-        required=True,
-        max_length=3,
-    )
-    staff = discord.ui.TextInput(
-        label="พนักงานที่อยากได้ (ชื่อ)",
-        placeholder="เช่น Mina, Luna, Hikari",
-        style=discord.TextStyle.paragraph,
-        required=True,
-        max_length=300,
-    )
-    note = discord.ui.TextInput(
-        label="หมายเหตุเพิ่มเติม",
-        style=discord.TextStyle.paragraph,
-        required=False,
-        max_length=300,
-    )
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        topic = (
-            "🎉 **คำขอจอง Private Party Room**\n"
-            f"วัน/เวลา: {self.when.value}\n"
-            f"จำนวนคน: {self.people.value}\n"
-            f"พนักงานที่ต้องการ: {self.staff.value}"
-            + (f"\nหมายเหตุ: {self.note.value}" if self.note.value else "")
-        )
-        await interaction.client.get_cog("TicketsCog").open_ticket(interaction, topic=topic)
-
-
 class RequestPanel(discord.ui.View):
     def __init__(self, vip_enabled: bool = False) -> None:
         super().__init__(timeout=None)
@@ -127,14 +89,16 @@ class RequestPanel(discord.ui.View):
         await interaction.response.send_message(embed=menu_embed(interaction.client.cfg), ephemeral=True)
 
     @discord.ui.button(
-        label="จอง Party Room",
-        emoji="🎉",
+        label="พนักงานวันนี้",
+        emoji="👥",
         style=discord.ButtonStyle.success,
-        custom_id="olp:request:party",
+        custom_id="olp:request:staff_today",
         row=0,
     )
-    async def party(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(PartyBookingModal())
+    async def staff_today(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        # private=False: ลูกค้าเห็นแค่ใครเข้างานและรับงานอะไร ไม่เห็นรายชื่อคนที่พนักงานไม่รับ
+        embed = await interaction.client.get_cog("AttendanceCog").today_embed(private=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(
         label="โดเนทให้พนักงาน",
@@ -197,12 +161,11 @@ class RequestPanelCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:request:")
 
-        advance = int(self.cfg.get("party_booking.advance_days", 2))
         lines = [
             "เลือกรายการที่ต้องการได้เลยค่ะ ระบบจะติดต่อกลับทาง **DM** ของบอท\n",
             "💬 **สอบถามเจ้าหน้าที่** — คุยกับแอดมินแบบตัวต่อตัวผ่าน DM (จองพนักงาน / สั่งบริการ)",
             "📜 **เมนู & ราคา** — ดูบริการทั้งหมดของร้าน",
-            f"🎉 **จอง Party Room** — กรอกวันเวลา จำนวนคน และพนักงานที่ต้องการ (แจ้งล่วงหน้า {advance} วันก่อนร้านเปิด)",
+            "👥 **พนักงานวันนี้** — ดูว่าวันนี้ใครเข้างาน และรับงานแบบไหนบ้าง",
             "💜 **โดเนทให้พนักงาน** — เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิปได้เอง",
             "🏆 **Top Donate** — ดูอันดับยอดโดเนทของเดือนนี้",
         ]
