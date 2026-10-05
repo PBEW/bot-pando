@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     parent_job_id     INTEGER,
     customer_id       INTEGER NOT NULL,
     staff_id          INTEGER NOT NULL,                    -- พนักงานหลัก (คนกดรับงาน)
-    co_staff          TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานร่วม (Party Room)
+    co_staff          TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานร่วม (บิลหลายพนักงาน)
+    accepted_by       TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานที่กดรับงานแล้ว (ทุกคนต้องรับ)
     services          TEXT    NOT NULL,                    -- JSON list ของ service key
     room              TEXT,
     note              TEXT,
@@ -193,6 +194,8 @@ class Database:
             columns = {row[1] for row in await cur.fetchall()}
         if "co_staff" not in columns:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN co_staff TEXT NOT NULL DEFAULT '[]'")
+        if "accepted_by" not in columns:
+            await self.conn.execute("ALTER TABLE jobs ADD COLUMN accepted_by TEXT NOT NULL DEFAULT '[]'")
         async with self.conn.execute("PRAGMA table_info(attendance)") as cur:
             columns = {row[1] for row in await cur.fetchall()}
         if "prefs" not in columns:
@@ -234,6 +237,7 @@ class Database:
         fields["services"] = json.dumps(fields.get("services", []), ensure_ascii=False)
         fields["quota_services"] = json.dumps(fields.get("quota_services", []), ensure_ascii=False)
         fields["co_staff"] = json.dumps(fields.get("co_staff", []))
+        fields["accepted_by"] = json.dumps(fields.get("accepted_by", []))
         cols = ", ".join(fields)
         holders = ", ".join("?" for _ in fields)
         return await self.execute(f"INSERT INTO jobs ({cols}) VALUES ({holders})", tuple(fields.values()))
@@ -243,6 +247,7 @@ class Database:
         job["services"] = json.loads(job["services"])
         job["quota_services"] = json.loads(job["quota_services"] or "[]")
         job["co_staff"] = json.loads(job.get("co_staff") or "[]")
+        job["accepted_by"] = json.loads(job.get("accepted_by") or "[]")
         return job
 
     async def get_job(self, job_id: int) -> dict | None:

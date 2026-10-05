@@ -44,7 +44,7 @@
     "qr_image_url": "",
     "note": "โอนแล้วส่งภาพสลิปกลับมาที่ DM นี้ได้เลยนะคะ"
   },
-  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified | staff_percent = % ที่พนักงานได้จากบริการนี้ (ไม่ใส่ = ใช้ revenue_share ของพนักงาน)",
+  "_comment_services": "pricing.normal = ราคาปกติ | require_room = ต้องเลือกห้อง | extend_only = ใช้ในเมนูต่อเวลาเท่านั้น | per_unit = เลือกจำนวนได้ (คิดราคาต่อหน่วย เช่น shot) | multi_staff = เลือกพนักงานหลายคนได้ (included_staff คนแรกรวมในราคา เกินคิด extra_staff_price ต่อคน) | addon_for = บริการเสริมที่ต้องซื้อคู่กับบริการหลัก {service_key: นาทีที่บวกเพิ่ม} | adult_only = ลูกค้าต้องมี Role roles.adult_verified | staff_percent = % ที่พนักงานได้จากบริการนี้ (ไม่ใส่ = ใช้ revenue_share ของพนักงาน) | extra_staff_percent = % ที่พนักงานได้จากค่าพนักงานเพิ่ม (ค่าเริ่มต้น 100 = ร้านไม่หักซ้ำ ทุกคนได้เท่ามาคนเดียว)",
   "services": [
     {
       "key": "short_date",
@@ -57,7 +57,12 @@
         "normal": 69
       },
       "staff_percent": 70,
-      "category": "chill"
+      "category": "chill",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 49,
+      "max_staff": 3,
+      "extra_staff_percent": 100
     },
     {
       "key": "drink_friend",
@@ -82,14 +87,15 @@
       "require_room": true,
       "multi_staff": true,
       "included_staff": 2,
-      "extra_staff_price": 39,
+      "extra_staff_price": 55,
       "max_staff": 10,
-      "description": "ห้องปาร์ตี้ส่วนตัว รวมพนักงาน 2 คน เพิ่มคนละ 39 บาท",
+      "description": "ห้องปาร์ตี้ส่วนตัว รวมพนักงาน 2 คน เพิ่มคนละ 55 บาท",
       "pricing": {
         "normal": 149
       },
       "staff_percent": 70,
-      "category": "normal_room"
+      "category": "normal_room",
+      "extra_staff_percent": 100
     },
     {
       "key": "karaoke",
@@ -102,7 +108,12 @@
         "normal": 109
       },
       "staff_percent": 70,
-      "category": "normal_room"
+      "category": "normal_room",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 79,
+      "max_staff": 4,
+      "extra_staff_percent": 100
     },
     {
       "key": "bedroom",
@@ -115,7 +126,12 @@
         "normal": 99
       },
       "staff_percent": 70,
-      "category": "vip_room"
+      "category": "vip_room",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 69,
+      "max_staff": 3,
+      "extra_staff_percent": 100
     },
     {
       "key": "erotic",
@@ -137,7 +153,12 @@
         "normal": 99
       },
       "staff_percent": 70,
-      "category": "vip_room"
+      "category": "vip_room",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 99,
+      "max_staff": 3,
+      "extra_staff_percent": 70
     },
     {
       "key": "short_date_extend",
@@ -150,7 +171,12 @@
         "normal": 30
       },
       "staff_percent": 70,
-      "category": "chill"
+      "category": "chill",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 21,
+      "max_staff": 3,
+      "extra_staff_percent": 100
     },
     {
       "key": "bedroom_extend",
@@ -163,7 +189,12 @@
         "normal": 99
       },
       "staff_percent": 70,
-      "category": "vip_room"
+      "category": "vip_room",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 69,
+      "max_staff": 3,
+      "extra_staff_percent": 100
     },
     {
       "key": "karaoke_extend",
@@ -176,7 +207,12 @@
         "normal": 109
       },
       "staff_percent": 70,
-      "category": "normal_room"
+      "category": "normal_room",
+      "multi_staff": true,
+      "included_staff": 1,
+      "extra_staff_price": 79,
+      "max_staff": 4,
+      "extra_staff_percent": 100
     },
     {
       "key": "donate",

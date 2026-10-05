@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import re
 
@@ -231,7 +232,7 @@ class OpenBillWizard(discord.ui.View):
             [int(s.get("max_staff", 10)) for s in self.cfg.bookable_services() if s.get("multi_staff")]
             or [1]
         )
-        staff_hint = " (Party Room เลือกได้หลายคน)" if max_staff > 1 else ""
+        staff_hint = " (เลือกได้หลายคน)" if max_staff > 1 else ""
 
         # ถ้าตั้ง roles.staff ไว้ ให้แสดงรายชื่อพนักงานเป็นเมนู (ไม่ต้องพิมพ์ค้นหา ชื่อฟอนต์พิเศษก็เลือกได้)
         # คนที่เข้างานวันนี้ขึ้นก่อน พร้อมบอกงานที่รับ
@@ -340,10 +341,22 @@ class OpenBillWizard(discord.ui.View):
         }
 
     def _avoid_problem(self) -> str | None:
-        """พนักงานที่เลือกระบุไว้ว่าไม่รับลูกค้าคนนี้วันนี้ -> ห้ามเปิดบิล"""
+        """ห้ามเปิดบิลถ้า: พนักงานไม่รับลูกค้าคนนี้วันนี้ / หรือบิลมีบริการ 18+ ที่พนักงานไม่ได้เลือกรับวันนี้"""
+        adult_cats = {
+            (self.cfg.service(k) or {}).get("category")
+            for k in self.service_keys
+            if (self.cfg.service(k) or {}).get("adult_only")
+        } - {None}
         for sid in self.staff_ids:
-            if self.customer_id in self.today.get(sid, {}).get("avoid_ids", []):
+            prefs = self.today.get(sid)
+            if prefs is None:
+                continue
+            if self.customer_id in prefs.get("avoid_ids", []):
                 return f"<@{sid}> แจ้งไว้ว่าวันนี้ไม่รับลูกค้าคนนี้ค่ะ — เลือกพนักงานคนอื่นนะคะ"
+            missing = adult_cats - set(prefs.get("accepts", []))
+            if missing:
+                labels = ", ".join(accept_label(self.cfg, k) for k in sorted(missing))
+                return f"<@{sid}> วันนี้ไม่รับ {labels} — บริการ 18+ เปิดบิลให้คนนี้ไม่ได้ค่ะ"
         return None
 
     def staff_warnings(self) -> list[str]:
@@ -639,7 +652,12 @@ class ExtendWizard(discord.ui.View):
             job = self.jobs[self.job_id]
             tier = await active_tier(self.cog.db, job["customer_id"], dt.datetime.now(self.cfg.tz))
             quote = await quote_services(
-                self.cfg, self.cog.db, self.service_keys, customer_id=job["customer_id"], tier=tier
+                self.cfg,
+                self.cog.db,
+                self.service_keys,
+                customer_id=job["customer_id"],
+                tier=tier,
+                staff_count=len(job_staff_ids(job)),
             )
             embed.add_field(
                 name="แพ็กเกจต่อเวลา",
@@ -856,35 +874,28 @@ class ReceptionCog(commands.Cog):
         shares = {sid: share for sid, _, share in job_staff_split(self.cfg, job)}
         payments = self.bot.get_cog("PaymentsCog")
 
-        embed = job_embed(self.cfg, job, title="🔔 มีงานใหม่เข้ามา", color=COLOR_WARN)
-        embed.add_field(name="ส่วนแบ่งของคุณ", value=money(shares.get(staff_id, staff_share)), inline=True)
-        if has_adult_service(self.cfg, service_keys):
-            embed.add_field(
-                name="🔞 มีบริการ 18+",
-                value="กดรับงานเฉพาะเมื่อคุณตกลงกับลูกค้าเรียบร้อยแล้ว ถ้าไม่สะดวกกด **ปฏิเสธงาน** ได้เลย",
-                inline=False,
-            )
-        if co_staff:
-            embed.add_field(
-                name="👑 คุณเป็นพนักงานหลักของบิลนี้",
-                value="กดรับงานแทนทั้งทีม — ลูกค้าจะได้ยอดชำระหลังคุณกดรับงาน",
-                inline=False,
-            )
-        sent = await send_dm(self.bot, staff_id, embed=embed, view=accept_view(job_id))
-        if sent is None:
-            await payments.notify_admin_text(
-                f"⚠️ ส่ง DM แจ้งงานบิล `#{job_id}` ถึงพนักงาน <@{staff_id}> ไม่สำเร็จ (ปิด DM อยู่)"
-            )
-
-        for sid in co_staff:
-            info = job_embed(self.cfg, job, title="🔔 คุณถูกเพิ่มเข้าบิลนี้", color=COLOR_INFO)
-            info.add_field(name="ส่วนแบ่งของคุณ", value=money(shares.get(sid, 0)), inline=True)
-            info.add_field(
-                name="พนักงานหลัก", value=f"<@{staff_id}> เป็นคนกดรับงานแทนทีม", inline=False
-            )
-            if await send_dm(self.bot, sid, embed=info) is None:
+        team = [staff_id, *co_staff]
+        for sid in team:
+            embed = job_embed(self.cfg, job, title="🔔 มีงานใหม่เข้ามา", color=COLOR_WARN)
+            embed.add_field(name="ส่วนแบ่งของคุณ", value=money(shares.get(sid, staff_share)), inline=True)
+            if has_adult_service(self.cfg, service_keys):
+                embed.add_field(
+                    name="🔞 มีบริการ 18+",
+                    value="กดรับงานเฉพาะเมื่อคุณตกลงกับลูกค้าเรียบร้อยแล้ว ถ้าไม่สะดวกกด **ปฏิเสธงาน** ได้เลย",
+                    inline=False,
+                )
+            if co_staff:
+                embed.add_field(
+                    name=f"👥 บิลนี้มีพนักงาน {len(team)} คน",
+                    value=(
+                        "**ทุกคนต้องกดรับงานเอง** ลูกค้าจะได้ยอดชำระเมื่อทุกคนรับครบ\n"
+                        "ถ้ามีใครกดปฏิเสธ บิลจะถูกยกเลิกทั้งใบ (ไม่แจ้งว่าใครปฏิเสธ)"
+                    ),
+                    inline=False,
+                )
+            if await send_dm(self.bot, sid, embed=embed, view=accept_view(job_id)) is None:
                 await payments.notify_admin_text(
-                    f"⚠️ ส่ง DM แจ้งบิล `#{job_id}` ถึงพนักงานร่วม <@{sid}> ไม่สำเร็จ (ปิด DM อยู่)"
+                    f"⚠️ ส่ง DM แจ้งงานบิล `#{job_id}` ถึงพนักงาน <@{sid}> ไม่สำเร็จ (ปิด DM อยู่)"
                 )
         return job_id
 
@@ -904,6 +915,7 @@ class ReceptionCog(commands.Cog):
             service_keys,
             customer_id=parent["customer_id"],
             tier=tier,
+            staff_count=len(job_staff_ids(parent)),
             now_local=now_local,
         )
         staff_ids = job_staff_ids(parent)
@@ -973,25 +985,54 @@ class ReceptionCog(commands.Cog):
         if job is None:
             await interaction.response.send_message("ไม่พบบิลนี้ค่ะ", ephemeral=True)
             return
-        if interaction.user.id != job["staff_id"]:
+        team = job_staff_ids(job)
+        if interaction.user.id not in team:
             await interaction.response.send_message("ปุ่มนี้สำหรับพนักงานที่ถูกจ่ายงานค่ะ", ephemeral=True)
             return
         if job["status"] != "PENDING_STAFF":
-            await interaction.response.send_message("บิลนี้ถูกรับงานไปแล้วค่ะ", ephemeral=True)
+            await interaction.response.send_message("บิลนี้ถูกดำเนินการไปแล้วค่ะ", ephemeral=True)
+            return
+        accepted = list(job.get("accepted_by") or [])
+        if interaction.user.id in accepted:
+            await interaction.response.send_message("คุณกดรับงานไปแล้วค่ะ รอพนักงานคนอื่นอยู่", ephemeral=True)
             return
 
         await interaction.response.defer()
+        accepted.append(interaction.user.id)
+        await self.db.update_job(job_id, accepted_by=json.dumps(accepted))
+        waiting = [sid for sid in team if sid not in accepted]
+        payments = self.bot.get_cog("PaymentsCog")
+
+        if waiting:
+            job = await self.db.get_job(job_id)
+            embed = job_embed(self.cfg, job, title=f"✅ รับงานแล้ว — รออีก {len(waiting)} คน", color=COLOR_INFO)
+            embed.add_field(name="ยังไม่ได้กดรับ", value=" ".join(f"<@{s}>" for s in waiting), inline=False)
+            await interaction.edit_original_response(embed=embed, view=None)
+            await payments.notify_admin_text(
+                f"✅ <@{interaction.user.id}> รับงานบิล `#{job_id}` ({len(accepted)}/{len(team)}) — "
+                f"รอ {' '.join(f'<@{s}>' for s in waiting)}"
+            )
+            return
+
         await self.db.update_job(job_id, status="ACCEPTED", accepted_at=to_iso(now_utc()))
         job = await self.db.get_job(job_id)
-
         await interaction.edit_original_response(
-            embed=job_embed(self.cfg, job, title="✅ รับงานแล้ว", color=COLOR_OK), view=None
+            embed=job_embed(self.cfg, job, title="✅ รับงานแล้ว" + (" — ครบทุกคน" if len(team) > 1 else ""), color=COLOR_OK),
+            view=None,
         )
-
-        payments = self.bot.get_cog("PaymentsCog")
+        for sid in team:
+            if sid != interaction.user.id and len(team) > 1:
+                await send_dm(
+                    self.bot,
+                    sid,
+                    embed=discord.Embed(
+                        description=f"✅ พนักงานรับงานบิล `#{job_id}` ครบทุกคนแล้ว — ส่งยอดชำระให้ลูกค้าเรียบร้อย",
+                        color=COLOR_OK,
+                    ),
+                )
         await payments.start_job_payment(job)
         await payments.notify_admin_text(
-            f"✅ <@{job['staff_id']}> รับงานบิล `#{job_id}` แล้ว — ส่งยอดชำระให้ลูกค้าเรียบร้อย"
+            f"✅ พนักงานรับงานบิล `#{job_id}` ครบ ({len(team)}/{len(team)}) — ส่งยอดชำระให้ลูกค้าเรียบร้อย"
         )
 
     async def staff_reject_prompt(self, interaction: discord.Interaction, job_id: int) -> None:
@@ -999,7 +1040,7 @@ class ReceptionCog(commands.Cog):
         if job is None:
             await interaction.response.send_message("ไม่พบบิลนี้ค่ะ", ephemeral=True)
             return
-        if interaction.user.id != job["staff_id"]:
+        if interaction.user.id not in job_staff_ids(job):
             await interaction.response.send_message("ปุ่มนี้สำหรับพนักงานที่ถูกจ่ายงานค่ะ", ephemeral=True)
             return
         if job["status"] != "PENDING_STAFF":
@@ -1009,7 +1050,7 @@ class ReceptionCog(commands.Cog):
 
     async def staff_reject(self, interaction: discord.Interaction, job_id: int, reason: str) -> None:
         job = await self.db.get_job(job_id)
-        if job is None or interaction.user.id != job["staff_id"] or job["status"] != "PENDING_STAFF":
+        if job is None or interaction.user.id not in job_staff_ids(job) or job["status"] != "PENDING_STAFF":
             await interaction.response.send_message("บิลนี้ถูกดำเนินการไปแล้วค่ะ", ephemeral=True)
             return
 
@@ -1039,7 +1080,7 @@ class ReceptionCog(commands.Cog):
             description=(
                 f"แผงควบคุมสำหรับแอดมิน / พนักงานต้อนรับ · {self.cfg.shop_name}\n\n"
                 "🧾 **เปิดบิลใหม่** — เลือกลูกค้า พนักงาน บริการ ห้อง แล้วคำนวณราคาอัตโนมัติ\n"
-                "　• Party Room เลือกพนักงานได้หลายคน (เกินที่รวมในราคาคิดเพิ่มต่อคน)\n"
+                "　• เลือกพนักงานได้หลายคน — คิดค่าพนักงานเพิ่มต่อคน ทุกคนต้องกดรับงานเอง\n"
                 "　• Drink Friend กรอกจำนวน shot ตอนยืนยัน\n"
                 "　• Erotic Service เลือกคู่กับ Short Date / Bed Room / Karaoke (บวกเวลาให้อัตโนมัติ)\n"
                 "⏱️ **ต่อเวลา / เพิ่มรอบ** — ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม\n"

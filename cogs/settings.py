@@ -389,8 +389,8 @@ class ServicesView(AdminView):
             embed.add_field(
                 name="หลายพนักงาน",
                 value=(
-                    f"รวม {svc.get('included_staff', 1)} คน · เพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท · "
-                    f"สูงสุด {svc.get('max_staff', 10)} คน"
+                    f"รวม {svc.get('included_staff', 1)} คน · เพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท "
+                    f"(พนักงานได้ {svc.get('extra_staff_percent', 100):g}%) · สูงสุด {svc.get('max_staff', 10)} คน"
                 ),
                 inline=False,
             )
@@ -560,11 +560,14 @@ class ServiceExtraModal(discord.ui.Modal):
         )
         self.add_item(self.description)
         self.fields: dict[str, discord.ui.TextInput] = {}
-        if svc.get("multi_staff"):
+        if not svc.get("per_unit"):
+            # พนักงานสูงสุด 1 = ปิดหลายพนักงาน · มากกว่า 1 = เปิด
+            multi = bool(svc.get("multi_staff"))
             for key, label, default in (
-                ("included_staff", "จำนวนพนักงานที่รวมในราคา", svc.get("included_staff", 1)),
+                ("max_staff", "พนักงานสูงสุดต่อบิล (1 = คนเดียว)", svc.get("max_staff", 10) if multi else 1),
+                ("included_staff", "จำนวนพนักงานที่รวมในราคาแล้ว", svc.get("included_staff", 1)),
                 ("extra_staff_price", "ค่าพนักงานเพิ่ม (บาท/คน)", svc.get("extra_staff_price", 0)),
-                ("max_staff", "พนักงานสูงสุดต่อบิล", svc.get("max_staff", 10)),
+                ("extra_staff_percent", "พนักงานได้กี่ % ของค่าพนักงานเพิ่ม", svc.get("extra_staff_percent", 100)),
             ):
                 self.fields[key] = discord.ui.TextInput(label=label, default=f"{default:g}", max_length=6)
                 self.add_item(self.fields[key])
@@ -583,6 +586,8 @@ class ServiceExtraModal(discord.ui.Modal):
                     values[key] = str(field.value).strip() or "หน่วย"
                 elif key == "extra_staff_price":
                     values[key] = _num(field.value, lo=0, hi=100_000, name="ค่าพนักงานเพิ่ม")
+                elif key == "extra_staff_percent":
+                    values[key] = _num(field.value, lo=0, hi=100, name="% ของค่าพนักงานเพิ่ม")
                 else:
                     values[key] = int(_num(field.value, lo=1, hi=25, name="จำนวนพนักงาน"))
         except ValueError as exc:
@@ -593,9 +598,22 @@ class ServiceExtraModal(discord.ui.Modal):
             svc["description"] = desc
         else:
             svc.pop("description", None)
+        if "max_staff" in values:
+            if values["included_staff"] > values["max_staff"]:
+                await interaction.response.send_message(
+                    "⚠️ จำนวนที่รวมในราคาต้องไม่มากกว่าพนักงานสูงสุดค่ะ", ephemeral=True
+                )
+                return
+            values["multi_staff"] = values["max_staff"] > 1
         svc.update(values)
         _save(interaction)
-        await log_change(interaction.client, interaction.user, f"แก้รายละเอียดบริการ **{svc['name']}**")
+        note = ""
+        if svc.get("multi_staff"):
+            note = (
+                f" — หลายพนักงาน สูงสุด {svc['max_staff']} คน · เพิ่มคนละ {svc['extra_staff_price']:,.0f} บาท "
+                f"(พนักงานได้ {svc.get('extra_staff_percent', 100):g}%)"
+            )
+        await log_change(interaction.client, interaction.user, f"แก้รายละเอียดบริการ **{svc['name']}**{note}")
         view = ServicesView(self.view.cfg, svc["key"])
         await interaction.response.edit_message(embed=view.embed(), view=view)
 

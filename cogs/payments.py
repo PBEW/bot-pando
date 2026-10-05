@@ -392,6 +392,17 @@ class PaymentsCog(commands.Cog):
                 self.db, job["customer_id"], job["quota_services"], job["quota_cycle"]
             )
 
+        for sid in job_staff_ids(job):
+            if sid != staff.id:
+                await send_dm(
+                    self.bot,
+                    sid,
+                    embed=discord.Embed(
+                        description=f"❌ บิล `#{job['id']}` ถูกยกเลิก เพราะมีพนักงานในทีมไม่สะดวกรับงานนี้",
+                        color=COLOR_DANGER,
+                    ),
+                )
+
         reason_text = f"\nเหตุผล: {reason}" if reason else ""
         await self.notify_admin(
             embed=discord.Embed(
@@ -496,8 +507,9 @@ class PaymentsCog(commands.Cog):
 
             if job["status"] == "PENDING_STAFF":
                 if now - from_iso(job["created_at"]) >= staff_wait and await self._once(f"stale:staff:{jid}"):
+                    waiting = [s for s in job_staff_ids(job) if s not in (job.get("accepted_by") or [])]
                     await self.notify_admin_text(
-                        f"⏳ บิล `#{jid}` รอ <@{job['staff_id']}> กดรับงานมาเกิน {staff_wait.seconds // 60} นาทีแล้ว "
+                        f"⏳ บิล `#{jid}` รอ {' '.join(f'<@{s}>' for s in waiting)} กดรับงานมาเกิน {staff_wait.seconds // 60} นาทีแล้ว "
                         "— ทักพนักงาน หรือยกเลิกแล้วเปิดบิลใหม่ด้วย `/bill cancel`"
                     )
 
