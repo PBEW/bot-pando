@@ -143,7 +143,8 @@ CREATE TABLE IF NOT EXISTS attendance (
     auto_closed INTEGER NOT NULL DEFAULT 0,   -- 1 = บอทปิดให้เพราะลืมกดออกงาน
     warned      INTEGER NOT NULL DEFAULT 0,   -- 1 = ส่ง DM เตือนลืมออกงานแล้ว
     edited_by   INTEGER,                      -- แอดมินที่แก้เวลาล่าสุด
-    note        TEXT
+    note        TEXT,
+    prefs       TEXT                          -- JSON: งานที่รับวันนี้ {accepts, avoid_ids, avoid_text}
 );
 
 CREATE TABLE IF NOT EXISTS daily_checkin (
@@ -184,6 +185,10 @@ class Database:
             columns = {row[1] for row in await cur.fetchall()}
         if "co_staff" not in columns:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN co_staff TEXT NOT NULL DEFAULT '[]'")
+        async with self.conn.execute("PRAGMA table_info(attendance)") as cur:
+            columns = {row[1] for row in await cur.fetchall()}
+        if "prefs" not in columns:
+            await self.conn.execute("ALTER TABLE attendance ADD COLUMN prefs TEXT")
 
     async def close(self) -> None:
         if self.conn is not None:

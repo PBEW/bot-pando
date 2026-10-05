@@ -200,7 +200,7 @@ class AdminPanel(discord.ui.View):
 
     @discord.ui.button(label="มาทำงานวันนี้", emoji="🟢", style=discord.ButtonStyle.primary, custom_id="olp:admin:on_duty", row=0)
     async def on_duty(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        embed = await interaction.client.get_cog("AttendanceCog").today_embed()
+        embed = await interaction.client.get_cog("AttendanceCog").today_embed(private=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # แถว 2: จัดการ

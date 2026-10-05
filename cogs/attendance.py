@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 from collections import defaultdict
 
@@ -46,6 +47,119 @@ def parse_past_time(raw: str, tz) -> dt.datetime:
     if value > now + dt.timedelta(minutes=1):
         raise TimeParseError("เวลาที่ระบุอยู่ในอนาคต")
     return value
+
+
+# ------------------------------------------------- งานที่รับวันนี้ (prefs)
+DEFAULT_ACCEPT_OPTIONS = [
+    {"key": "vip_room", "label": "ห้องบริการ VIP", "emoji": "🔥"},
+    {"key": "normal_room", "label": "ห้องปกติ", "emoji": "🚪"},
+    {"key": "chill", "label": "เล่นชิวๆ", "emoji": "☕"},
+]
+
+
+def accept_options(cfg) -> list[dict]:
+    return list(cfg.get("attendance.accept_options") or DEFAULT_ACCEPT_OPTIONS)
+
+
+def accept_label(cfg, key: str) -> str:
+    opt = next((o for o in accept_options(cfg) if o["key"] == key), None)
+    return f"{opt.get('emoji', '')} {opt['label']}".strip() if opt else key
+
+
+def load_prefs(row: dict | None) -> dict:
+    """prefs ของการเข้างาน 1 รายการ: {accepts: [key], avoid_ids: [user_id], avoid_text: str}"""
+    raw = (row or {}).get("prefs")
+    data = json.loads(raw) if raw else {}
+    return {
+        "accepts": list(data.get("accepts") or []),
+        "avoid_ids": [int(x) for x in data.get("avoid_ids") or []],
+        "avoid_text": str(data.get("avoid_text") or ""),
+    }
+
+
+def format_prefs(cfg, prefs: dict, *, private: bool) -> str:
+    """ข้อความสรุปงานที่รับ — private=True แสดงรายชื่อคนที่ไม่รับด้วย (เฉพาะแอดมิน/คนกดเอง)"""
+    accepts = " · ".join(accept_label(cfg, k) for k in prefs["accepts"]) or "-"
+    text = f"รับ: {accepts}"
+    if private and (prefs["avoid_ids"] or prefs["avoid_text"]):
+        avoid = " ".join(f"<@{uid}>" for uid in prefs["avoid_ids"])
+        if prefs["avoid_text"]:
+            avoid = f"{avoid} {prefs['avoid_text']}".strip()
+        text += f"\n　⛔ ไม่รับ: {avoid}"
+    return text
+
+
+class AvoidNoteModal(discord.ui.Modal, title="ยืนยันเข้างาน"):
+    avoid_text = discord.ui.TextInput(
+        label="คนที่ไม่เข้าห้องด้วยวันนี้ (พิมพ์ชื่อ ไม่บังคับ)",
+        placeholder="เช่น ลูกค้าที่ยังไม่อยากเจอ / หมายเหตุถึงแอดมิน",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=300,
+    )
+
+    def __init__(self, view: "ClockInView") -> None:
+        super().__init__()
+        self.view = view
+        self.avoid_text.default = view.prefs["avoid_text"] or None
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        self.view.prefs["avoid_text"] = str(self.avoid_text.value).strip()
+        self.view.stop()
+        await self.view.cog.save_clock_in(interaction, self.view.prefs)
+
+
+class ClockInView(discord.ui.View):
+    """ฟอร์มตอนกดเข้างาน: เลือกงานที่รับวันนี้ + คนที่ไม่รับเข้าห้อง (เห็นเฉพาะพนักงานคนกด)"""
+
+    def __init__(self, cog: "AttendanceCog", user: discord.abc.User, prefs: dict) -> None:
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.user = user
+        self.prefs = prefs
+
+        options = accept_options(cog.cfg)
+        selected = set(prefs["accepts"]) or {o["key"] for o in options}
+        self.accept_select = discord.ui.Select(
+            placeholder="วันนี้รับงานแบบไหนบ้าง (เลือกได้หลายข้อ)",
+            min_values=1,
+            max_values=len(options),
+            row=0,
+            options=[
+                discord.SelectOption(
+                    label=o["label"], value=o["key"], emoji=o.get("emoji"), default=o["key"] in selected
+                )
+                for o in options
+            ],
+        )
+        self.accept_select.callback = self._on_accept
+        self.add_item(self.accept_select)
+        self.prefs["accepts"] = [o["key"] for o in options if o["key"] in selected]
+
+        self.avoid_select = discord.ui.UserSelect(
+            placeholder="⛔ คนที่ไม่รับเข้าห้องด้วยวันนี้ (ไม่บังคับ)",
+            min_values=0,
+            max_values=10,
+            row=1,
+            default_values=[discord.Object(id=uid) for uid in prefs["avoid_ids"]],
+        )
+        self.avoid_select.callback = self._on_avoid
+        self.add_item(self.avoid_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user.id
+
+    async def _on_accept(self, interaction: discord.Interaction) -> None:
+        self.prefs["accepts"] = list(self.accept_select.values)
+        await interaction.response.defer()
+
+    async def _on_avoid(self, interaction: discord.Interaction) -> None:
+        self.prefs["avoid_ids"] = [u.id for u in self.avoid_select.values]
+        await interaction.response.defer()
+
+    @discord.ui.button(label="ถัดไป: ยืนยันเข้างาน", emoji="✅", style=discord.ButtonStyle.success, row=2)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(AvoidNoteModal(self))
 
 
 class AttendancePanel(discord.ui.View):
@@ -133,24 +247,63 @@ class AttendanceCog(commands.Cog):
     async def clock_in(self, interaction: discord.Interaction) -> None:
         if await self._deny_if_not_staff(interaction):
             return
+        current = await self.db.open_attendance(interaction.user.id)
+        embed = discord.Embed(
+            title="✏️ แก้ไขงานที่รับวันนี้" if current else "🟢 เข้างาน — วันนี้รับงานแบบไหน?",
+            description=(
+                "1) เลือกงานที่รับวันนี้ (เลือกได้หลายข้อ)\n"
+                "2) เลือกคนที่ไม่รับเข้าห้องด้วย (ไม่บังคับ — แอดมินจะเปิดบิลคู่กับคนนี้ไม่ได้)\n"
+                "3) กด **ยืนยันเข้างาน** แล้วพิมพ์ชื่อ/หมายเหตุเพิ่มได้\n\n"
+                "*รายชื่อคนที่ไม่รับ เห็นเฉพาะคุณกับแอดมินเท่านั้น*"
+            ),
+            color=COLOR_MAIN,
+        )
+        if current:
+            embed.set_footer(text="วันนี้คุณเข้างานแล้ว — ยืนยันเพื่ออัปเดตข้อมูล (เวลาเข้างานไม่เปลี่ยน)")
+        await interaction.response.send_message(
+            embed=embed, view=ClockInView(self, interaction.user, load_prefs(current)), ephemeral=True
+        )
+
+    async def save_clock_in(self, interaction: discord.Interaction, prefs: dict) -> None:
+        """บันทึกเข้างาน (หรืออัปเดตงานที่รับ ถ้าวันนี้เข้างานแล้ว) — เรียกจาก AvoidNoteModal"""
         user = interaction.user
+        prefs_json = json.dumps(prefs, ensure_ascii=False)
         current = await self.db.open_attendance(user.id)
+        summary = format_prefs(self.cfg, prefs, private=True)
+
         if current is not None:
-            started = from_iso(current["clock_in"])
-            await interaction.response.send_message(
-                f"วันนี้คุณกดเข้างานไปแล้วตอน {discord_ts(started)} ค่ะ", ephemeral=True
+            await self.db.update_attendance(current["id"], prefs=prefs_json)
+            await interaction.response.edit_message(
+                embed=discord.Embed(title="✏️ อัปเดตงานที่รับวันนี้แล้ว", description=summary, color=COLOR_OK),
+                view=None,
             )
+            await self._notify_admin(f"✏️ <@{user.id}> แก้ไขงานที่รับวันนี้ · {summary}")
             return
 
         now = now_utc()
-        await self.db.create_attendance(interaction.guild_id or self.cfg.guild_id, user.id, to_iso(now))
-        await interaction.response.send_message(
-            f"🟢 บันทึกเข้างานแล้ว เวลา **{fmt_time(now, self.cfg.tz)}** น. "
-            f"(บอทตัดยอดให้อัตโนมัติตอน {self.cutoff_label()}) — กดผิด กด ↩️ ยกเลิกเข้างานได้ค่ะ",
-            ephemeral=True,
+        row_id = await self.db.create_attendance(interaction.guild_id or self.cfg.guild_id, user.id, to_iso(now))
+        await self.db.update_attendance(row_id, prefs=prefs_json)
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title=f"🟢 บันทึกเข้างานแล้ว {fmt_time(now, self.cfg.tz)} น.",
+                description=(
+                    f"{summary}\n\n"
+                    f"บอทตัดยอดให้อัตโนมัติตอน {self.cutoff_label()} · กดผิด กด ↩️ ยกเลิกเข้างานได้\n"
+                    "อยากเปลี่ยนงานที่รับ กด 🟢 เข้างาน อีกครั้งได้เลยค่ะ"
+                ),
+                color=COLOR_OK,
+            ),
+            view=None,
         )
         await self._set_on_duty(interaction.guild, user.id, True)
-        await self._notify_admin(f"🟢 <@{user.id}> เข้างาน {discord_ts(now)}")
+        await self._notify_admin(f"🟢 <@{user.id}> เข้างาน {discord_ts(now)} · {summary}")
+
+    async def today_prefs(self) -> dict[int, dict]:
+        """{user_id: prefs} ของพนักงานที่เข้างานวันนี้ (ใช้ตอนแอดมินเปิดบิล)"""
+        rows = await self.db.fetchall(
+            "SELECT * FROM attendance WHERE clock_in >= ? ORDER BY clock_in", (to_iso(self.workday_start()),)
+        )
+        return {row["user_id"]: load_prefs(row) for row in rows}
 
     async def cancel_clock_in(self, interaction: discord.Interaction) -> None:
         """ยกเลิกการกดเข้างานของวันนี้ (กรณีกดผิด) — ลบรายการทิ้ง ไม่นับชั่วโมง"""
@@ -340,15 +493,19 @@ class AttendanceCog(commands.Cog):
     async def my_hours_command(self, interaction: discord.Interaction) -> None:
         await self.send_my_hours(interaction)
 
-    async def today_embed(self) -> discord.Embed:
-        """คนที่มาทำงานวันนี้ (กดเข้างานตั้งแต่ตัดยอดครั้งล่าสุด)"""
+    async def today_embed(self, *, private: bool = False) -> discord.Embed:
+        """คนที่มาทำงานวันนี้ (กดเข้างานตั้งแต่ตัดยอดครั้งล่าสุด) — private=True แสดงคนที่ไม่รับด้วย (แอดมิน)"""
         start = self.workday_start()
         rows = await self.db.fetchall(
             "SELECT * FROM attendance WHERE clock_in >= ? ORDER BY clock_in", (to_iso(start),)
         )
         if not rows:
             return discord.Embed(description="วันนี้ยังไม่มีพนักงานกดเข้างานค่ะ", color=COLOR_MAIN)
-        lines = [f"• <@{r['user_id']}> — เข้างาน {discord_ts(from_iso(r['clock_in']))}" for r in rows]
+        lines = [
+            f"• <@{r['user_id']}> — เข้างาน {discord_ts(from_iso(r['clock_in']))}\n"
+            f"　{format_prefs(self.cfg, load_prefs(r), private=private)}"
+            for r in rows
+        ]
         embed = discord.Embed(
             title=f"🟢 มาทำงานวันนี้ ({len(rows)} คน)", description="\n".join(lines)[:4000], color=COLOR_OK
         )
@@ -357,7 +514,8 @@ class AttendanceCog(commands.Cog):
 
     @app_commands.command(name="staff_today", description="ดูว่าวันนี้พนักงานคนไหนมาทำงานบ้าง")
     async def staff_today_command(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(embed=await self.today_embed(), ephemeral=True)
+        private = is_admin(interaction.user, self.cfg.admin_role_id)
+        await interaction.response.send_message(embed=await self.today_embed(private=private), ephemeral=True)
 
     @app_commands.command(name="attendance_report", description="สรุปชั่วโมงงานพนักงานของรอบปัจจุบัน (แอดมิน)")
     async def attendance_report(self, interaction: discord.Interaction) -> None:
