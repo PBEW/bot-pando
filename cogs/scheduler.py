@@ -69,6 +69,11 @@ class SchedulerCog(commands.Cog):
             await self.db.set_meta(
                 "last_cutoff", cycle_start_local(now_local, self.cfg).date().isoformat()
             )
+        # เปิดบอททุกครั้ง: เติมบิลที่ชำระแล้วแต่ยังไม่ได้ลงชีต
+        try:
+            await self.bot.get_cog("PaymentsCog").backfill_sheet()
+        except Exception:  # noqa: BLE001 - ไม่ให้ลูปหลักไม่เริ่มเพราะ Sheets
+            log.exception("เติมบิลลง Google Sheets ตอนเปิดบอทไม่สำเร็จ")
 
     # ------------------------------------------------------- แจ้งเตือนเวลางาน
     async def check_jobs(self) -> None:

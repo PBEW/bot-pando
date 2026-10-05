@@ -110,6 +110,8 @@ class StaffPanelCog(commands.Cog):
             )
             return
 
+        # ตอบ Discord ก่อน (ต้องภายใน 3 วินาที) — การเขียน Google Sheets อาจช้ากว่านั้น
+        await interaction.response.defer(ephemeral=True, thinking=True)
         now = dt.datetime.now(self.cfg.tz)
         await self.db.set_payout(interaction.user.id, bank, cleaned, account_name, now.isoformat())
         synced = await self.bot.sheets.upsert_payout_row(
@@ -130,7 +132,7 @@ class StaffPanelCog(commands.Cog):
             text="ข้อมูลนี้เห็นเฉพาะคุณกับแอดมิน"
             + (" · อัปเดตใน Google Sheets แล้ว" if synced else "")
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
         payments = self.bot.get_cog("PaymentsCog")
         if payments is not None:
