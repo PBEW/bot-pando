@@ -256,5 +256,12 @@
     "announce": true,
     "staff_percent": 100
   },
-  "_comment_attendance": "ไม่มีปุ่มออกงาน — บอทตัดยอดอัตโนมัติทุกวันตอน day_cutoff_hour (1 = ตี 1) | accept_options = ตัวเลือกงานที่พนักงานรับตอนกดเข้างาน ผูกกับบริการด้วยฟิลด์ category ใน services"
+  "_comment_attendance": "ไม่มีปุ่มออกงาน — บอทตัดยอดอัตโนมัติทุกวันตอน day_cutoff_hour (1 = ตี 1) | accept_options = ตัวเลือกงานที่พนักงานรับตอนกดเข้างาน ผูกกับบริการด้วยฟิลด์ category ใน services",
+  "_comment_bill_timeout": "บิลค้าง (นาที): staff_accept = เตือนแอดมินเมื่อพนักงานยังไม่รับงาน | payment_remind = DM เตือนลูกค้า | payment_cancel = ยกเลิกถ้ายังไม่ส่งสลิป (ไม่ก่อนเวลาเริ่มงาน) | slip_review = เตือนแอดมินเมื่อสลิปรอตรวจนาน",
+  "bill_timeout": {
+    "staff_accept_minutes": 15,
+    "payment_remind_minutes": 15,
+    "payment_cancel_minutes": 45,
+    "slip_review_minutes": 10
+  }
 }
