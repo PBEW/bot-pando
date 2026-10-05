@@ -1,6 +1,7 @@
 """เหรียญ Pandora: ได้เหรียญจากบิล/รีวิว/Top Donate, แลกรางวัลเป็นคูปอง, อันดับนักสะสม, หมดอายุ"""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import logging
 
@@ -58,12 +59,294 @@ class RedeemView(discord.ui.View):
         await self.cog.redeem(interaction, self.choice)
 
 
+# ================================================================ เมนูแอดมิน
+class AdminOnly(discord.ui.View):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if is_admin(interaction.user, interaction.client.cfg.admin_role_id):
+            return True
+        await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        return False
+
+
+class CoinAdminView(AdminOnly):
+    """เมนูเหรียญ Pandora สำหรับแอดมิน (เปิดจาก /panel_admin)"""
+
+    def __init__(self, cog: "CoinsCog", member: discord.abc.User | None = None, vouchers: list[dict] | None = None) -> None:
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.member = member
+        self.vouchers = vouchers or []
+        self.voucher_id: int | None = None
+        cfg = cog.cfg
+
+        self.member_select = discord.ui.UserSelect(
+            placeholder="👤 เลือกลูกค้าเพื่อดู/ปรับเหรียญ",
+            row=0,
+            default_values=[discord.Object(id=member.id)] if member else [],
+        )
+        self.member_select.callback = self._on_member
+        self.add_item(self.member_select)
+
+        self.voucher_select = discord.ui.Select(
+            placeholder="🎟️ คูปองของลูกค้า (เลือกเพื่อกดว่าใช้แล้ว)",
+            row=1,
+            disabled=not self.vouchers,
+            options=[
+                discord.SelectOption(
+                    label=f"V{v['id']} {(coins.reward(cfg, v['reward_key']) or {}).get('name', v['reward_key'])}"[:100],
+                    value=str(v["id"]),
+                    description=f"หมดอายุ {_fmt_date(v['expires_at'], cfg.tz)}",
+                )
+                for v in self.vouchers[:25]
+            ]
+            or [discord.SelectOption(label="ไม่มีคูปอง", value="-")],
+        )
+        self.voucher_select.callback = self._on_voucher
+        self.add_item(self.voucher_select)
+
+    async def embed(self) -> discord.Embed:
+        cfg = self.cog.cfg
+        mult = float(coins.opt(cfg, "event_multiplier"))
+        embed = discord.Embed(title=f"🪙 จัดการ{coins.opt(cfg, 'name')}", color=COLOR_GOLD)
+        embed.add_field(
+            name="ตั้งค่าปัจจุบัน",
+            value=(
+                f"1 เหรียญ / {coins.opt(cfg, 'baht_per_coin')} บาท · โดเนท 1 / {coins.opt(cfg, 'donate_baht_per_coin')} บาท\n"
+                f"มาครั้งแรก +{coins.opt(cfg, 'first_visit_bonus')} · รีวิว +{coins.opt(cfg, 'review_bonus')} · "
+                f"Top Donate +{coins.opt(cfg, 'top_donate_bonus')}\n"
+                f"หมดอายุเมื่อไม่มา {coins.opt(cfg, 'expire_inactive_days')} วัน · "
+                + ("อีเวนต์: ปิด" if mult <= 1 else f"🎉 อีเวนต์ ×{mult:g} อยู่")
+            ),
+            inline=False,
+        )
+        if self.member:
+            uid = self.member.id
+            embed.add_field(name=f"👤 {self.member.display_name}", value=(
+                f"คงเหลือ **{await coins.balance(self.cog.db, uid):,}** · สะสมตลอดชีพ {await coins.lifetime(self.cog.db, uid):,}\n"
+                f"คูปองที่ใช้ได้ {len(self.vouchers)} ใบ"
+            ), inline=False)
+            history = await self.cog.db.fetchall("SELECT * FROM coin_ledger WHERE user_id = ? ORDER BY id DESC LIMIT 5", (uid,))
+            if history:
+                embed.add_field(
+                    name="ล่าสุด", value="\n".join(f"`{h['delta']:+d}` {h['reason']}" for h in history)[:1024], inline=False
+                )
+        else:
+            embed.set_footer(text="เลือกลูกค้าด้านล่างเพื่อดูยอด ปรับเหรียญ หรือกดใช้คูปอง")
+        return embed
+
+    async def rerender(self, interaction: discord.Interaction, member: discord.abc.User | None) -> None:
+        vouchers = await coins.active_vouchers(self.cog.db, member.id) if member else []
+        view = CoinAdminView(self.cog, member, vouchers)
+        await interaction.response.edit_message(embed=await view.embed(), view=view)
+
+    async def _on_member(self, interaction: discord.Interaction) -> None:
+        await self.rerender(interaction, self.member_select.values[0])
+
+    async def _on_voucher(self, interaction: discord.Interaction) -> None:
+        value = self.voucher_select.values[0]
+        self.voucher_id = None if value == "-" else int(value)
+        await interaction.response.defer()
+
+    @discord.ui.button(label="ปรับเหรียญ", emoji="➕", style=discord.ButtonStyle.primary, row=2)
+    async def adjust(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if self.member is None:
+            await interaction.response.send_message("เลือกลูกค้าก่อนค่ะ", ephemeral=True)
+            return
+        await interaction.response.send_modal(AdjustModal(self))
+
+    @discord.ui.button(label="ใช้คูปองที่เลือกแล้ว", emoji="✅", style=discord.ButtonStyle.success, row=2)
+    async def use_voucher(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not self.voucher_id:
+            await interaction.response.send_message("เลือกคูปองก่อนค่ะ", ephemeral=True)
+            return
+        await self.cog.use_voucher(self.voucher_id, 0)
+        await self.cog._notify_admin(
+            f"🎟️ {interaction.user.mention} บันทึกว่า {self.member.mention} ใช้คูปอง `V{self.voucher_id}` แล้ว"
+        )
+        await self.rerender(interaction, self.member)
+
+    @discord.ui.button(label="อีเวนต์เหรียญ", emoji="🎉", style=discord.ButtonStyle.secondary, row=3)
+    async def event(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(EventModal(self))
+
+    @discord.ui.button(label="ตั้งค่าเหรียญ", emoji="⚙️", style=discord.ButtonStyle.secondary, row=3)
+    async def settings(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(CoinSettingsModal(self))
+
+    @discord.ui.button(label="แก้รางวัล", emoji="🎁", style=discord.ButtonStyle.secondary, row=3)
+    async def rewards(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        view = RewardEditView(self)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+    @discord.ui.button(label="อันดับนักสะสม", emoji="🏅", style=discord.ButtonStyle.secondary, row=3)
+    async def top(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.cog.show_leaderboard(interaction)
+
+
+class AdjustModal(discord.ui.Modal, title="ปรับเหรียญ"):
+    amount = discord.ui.TextInput(label="จำนวน (ใส่ - เพื่อลด เช่น -20)", max_length=7)
+    reason = discord.ui.TextInput(label="เหตุผล", max_length=200)
+
+    def __init__(self, view: CoinAdminView) -> None:
+        super().__init__()
+        self.view = view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            amount = int(str(self.amount.value).replace(",", "").strip())
+        except ValueError:
+            amount = 0
+        if amount == 0 or abs(amount) > 100_000:
+            await interaction.response.send_message("⚠️ จำนวนต้องเป็นตัวเลข ไม่เป็น 0 และไม่เกิน 100,000 ค่ะ", ephemeral=True)
+            return
+        member, cog = self.view.member, self.view.cog
+        reason = str(self.reason.value).strip()
+        await cog._change(member.id, amount, "ADMIN", reason, by=interaction.user.id)
+        await cog._notify_admin(f"🪙 {interaction.user.mention} ปรับเหรียญ {member.mention} {amount:+,} — {reason}")
+        await self.view.rerender(interaction, member)
+
+
+class EventModal(discord.ui.Modal, title="อีเวนต์เหรียญ"):
+    multiplier = discord.ui.TextInput(label="ตัวคูณ (1 = ปิด, 2 = ได้ 2 เท่า, สูงสุด 5)", max_length=4)
+
+    def __init__(self, view: CoinAdminView) -> None:
+        super().__init__()
+        self.view = view
+        self.multiplier.default = f"{float(coins.opt(view.cog.cfg, 'event_multiplier')):g}"
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            value = float(str(self.multiplier.value).strip())
+        except ValueError:
+            value = 0
+        if not 1 <= value <= 5:
+            await interaction.response.send_message("⚠️ ตัวคูณต้องอยู่ระหว่าง 1 ถึง 5 ค่ะ", ephemeral=True)
+            return
+        await self.view.cog.set_event(interaction.user, value)
+        await self.view.rerender(interaction, self.view.member)
+
+
+COIN_SETTING_FIELDS = [
+    # (key, label, min, max)
+    ("baht_per_coin", "กี่บาทได้ 1 เหรียญ", 1, 10_000),
+    ("donate_baht_per_coin", "โดเนทกี่บาทได้ 1 เหรียญ", 1, 10_000),
+    ("first_visit_bonus", "โบนัสมาครั้งแรก (เหรียญ)", 0, 10_000),
+    ("review_bonus", "โบนัสรีวิว (เหรียญ)", 0, 10_000),
+    ("expire_inactive_days", "เหรียญหมดอายุถ้าไม่มากี่วัน (0 = ไม่หมด)", 0, 3650),
+]
+
+
+class CoinSettingsModal(discord.ui.Modal, title="ตั้งค่าเหรียญ"):
+    def __init__(self, view: CoinAdminView) -> None:
+        super().__init__()
+        self.view = view
+        self.inputs = []
+        for key, text, lo, hi in COIN_SETTING_FIELDS:
+            field = discord.ui.TextInput(label=text, default=str(coins.opt(view.cog.cfg, key)), max_length=6)
+            self.inputs.append((key, text, lo, hi, field))
+            self.add_item(field)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        values = {}
+        for key, text, lo, hi, field in self.inputs:
+            try:
+                value = int(str(field.value).replace(",", "").strip())
+            except ValueError:
+                value = None
+            if value is None or not lo <= value <= hi:
+                await interaction.response.send_message(f"⚠️ **{text}** ต้องเป็นตัวเลข {lo}–{hi} ค่ะ", ephemeral=True)
+                return
+            values[key] = value
+        cfg = self.view.cog.cfg
+        section = cfg.data.setdefault("coins", {})
+        changed = [f"{t}: {coins.opt(cfg, k)} → {values[k]}" for k, t, *_ in COIN_SETTING_FIELDS if coins.opt(cfg, k) != values[k]]
+        section.update(values)
+        cfg.save()
+        if changed:
+            await self.view.cog._notify_admin(
+                f"⚙️ {interaction.user.mention} แก้ตั้งค่าเหรียญ\n" + "\n".join(f"• {c}" for c in changed)
+            )
+        await self.view.rerender(interaction, self.view.member)
+
+
+class RewardEditView(AdminOnly):
+    def __init__(self, parent: CoinAdminView) -> None:
+        super().__init__(timeout=600)
+        self.parent = parent
+        cfg = parent.cog.cfg
+        self.select = discord.ui.Select(
+            placeholder="เลือกรางวัลที่จะแก้",
+            options=[
+                discord.SelectOption(label=f"{r['name']} — {r['cost']} เหรียญ"[:100], value=r["key"], emoji=r.get("emoji") or None)
+                for r in coins.rewards(cfg)[:25]
+            ],
+        )
+        self.select.callback = self._on_pick
+        self.add_item(self.select)
+
+    def embed(self) -> discord.Embed:
+        cfg = self.parent.cog.cfg
+        return discord.Embed(
+            title="🎁 แก้รางวัล",
+            description="\n".join(f"{r.get('emoji', '')} **{r['name']}** — {r['cost']} เหรียญ" for r in coins.rewards(cfg))
+            + "\n\nเลือกรางวัลเพื่อแก้ชื่อ / อีโมจิ / ราคา",
+            color=COLOR_GOLD,
+        )
+
+    async def _on_pick(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(RewardModal(self, self.select.values[0]))
+
+    @discord.ui.button(label="กลับ", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.parent.rerender(interaction, self.parent.member)
+
+
+class RewardModal(discord.ui.Modal, title="แก้รางวัล"):
+    name = discord.ui.TextInput(label="ชื่อรางวัล", max_length=60)
+    emoji = discord.ui.TextInput(label="อีโมจิ", required=False, max_length=8)
+    cost = discord.ui.TextInput(label="ราคา (เหรียญ)", max_length=6)
+
+    def __init__(self, view: RewardEditView, key: str) -> None:
+        super().__init__()
+        self.view = view
+        self.key = key
+        item = coins.reward(view.parent.cog.cfg, key) or {}
+        self.name.default = item.get("name")
+        self.emoji.default = item.get("emoji") or None
+        self.cost.default = str(item.get("cost", 0))
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            cost = int(str(self.cost.value).replace(",", "").strip())
+        except ValueError:
+            cost = 0
+        if not 1 <= cost <= 100_000:
+            await interaction.response.send_message("⚠️ ราคาต้องเป็นตัวเลข 1–100,000 ค่ะ", ephemeral=True)
+            return
+        cfg = self.view.parent.cog.cfg
+        section = cfg.data.setdefault("coins", {})
+        if "rewards" not in section:  # ยังใช้ค่าเริ่มต้นอยู่ → คัดลอกลง config ก่อนแก้
+            section["rewards"] = [dict(r) for r in coins.DEFAULT_REWARDS]
+        item = next(r for r in section["rewards"] if r["key"] == self.key)
+        old = f"{item['name']} {item['cost']}"
+        item.update(name=str(self.name.value).strip(), cost=cost)
+        if str(self.emoji.value).strip():
+            item["emoji"] = str(self.emoji.value).strip()
+        cfg.save()
+        await self.view.parent.cog._notify_admin(
+            f"🎁 {interaction.user.mention} แก้รางวัล {old} → **{item['name']}** {cost} เหรียญ"
+        )
+        view = RewardEditView(self.view.parent)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
 # ======================================================================== cog
 class CoinsCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.cfg = bot.cfg
         self.db = bot.db
+        self._sheet_tasks: set[asyncio.Task] = set()
 
     # -------------------------------------------------------- helpers
     async def _notify_admin(self, text: str) -> None:
@@ -73,19 +356,28 @@ class CoinsCog(commands.Cog):
 
     async def _change(self, user_id: int, delta: int, kind: str, reason: str, *, ref: str | None = None, by: int | None = None) -> int:
         new_balance = await coins.add(self.db, user_id, delta, kind, reason, ref=ref, by=by)
-        guild = self.bot.get_guild(self.cfg.guild_id)
-        await self.bot.sheets.append_coin_row([
-            dt.datetime.now(self.cfg.tz).strftime("%d/%m/%Y %H:%M"),
-            await display_name(self.bot, guild, user_id),
-            str(user_id),
-            delta,
-            kind,
-            reason,
-            new_balance,
-        ])
+        # ลงชีตแบบเบื้องหลัง — ผู้เรียกบางจุด (ฟอร์มแอดมิน) ต้องตอบ Discord ภายใน 3 วินาที
+        task = asyncio.create_task(self._log_sheet(user_id, delta, kind, reason, new_balance))
+        self._sheet_tasks.add(task)
+        task.add_done_callback(self._sheet_tasks.discard)
         if delta > 0 and kind in coins.LIFETIME_KINDS:
             await self._check_collector(user_id)
         return new_balance
+
+    async def _log_sheet(self, user_id: int, delta: int, kind: str, reason: str, new_balance: int) -> None:
+        try:
+            guild = self.bot.get_guild(self.cfg.guild_id)
+            await self.bot.sheets.append_coin_row([
+                dt.datetime.now(self.cfg.tz).strftime("%d/%m/%Y %H:%M"),
+                await display_name(self.bot, guild, user_id),
+                str(user_id),
+                delta,
+                kind,
+                reason,
+                new_balance,
+            ])
+        except Exception:  # noqa: BLE001 - การลงชีตพลาดต้องไม่กระทบเหรียญ
+            log.exception("ลงชีตเหรียญไม่สำเร็จ")
 
     async def _check_collector(self, user_id: int) -> None:
         """สะสมตลอดชีพครบ collector_lifetime → ให้ Role นักสะสม (ครั้งเดียว)"""
@@ -414,11 +706,18 @@ class CoinsCog(commands.Cog):
         if not self._guard(interaction):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
+        await interaction.response.send_message(f"✅ {self.event_state(multiplier)}", ephemeral=True)
+        await self.set_event(interaction.user, multiplier)
+
+    @staticmethod
+    def event_state(multiplier: float) -> str:
+        return "ปิดอีเวนต์ (ได้เหรียญปกติ)" if multiplier == 1 else f"เปิดอีเวนต์ ได้เหรียญ ×{multiplier:g}"
+
+    async def set_event(self, user: discord.abc.User, multiplier: float) -> None:
+        """ตั้งตัวคูณเหรียญ + แจ้งแอดมิน + ประกาศลูกค้า (เมื่อเปิดอีเวนต์)"""
         self.cfg.data.setdefault("coins", {})["event_multiplier"] = multiplier
         self.cfg.save()
-        state = "ปิดอีเวนต์ (ได้เหรียญปกติ)" if multiplier == 1 else f"เปิดอีเวนต์ ได้เหรียญ ×{multiplier:g}"
-        await interaction.response.send_message(f"✅ {state}", ephemeral=True)
-        await self._notify_admin(f"🪙 {interaction.user.mention} {state}")
+        await self._notify_admin(f"🪙 {user.mention} {self.event_state(multiplier)}")
         channel = self.bot.get_channel(self.cfg.channel_id("announce"))
         if channel is not None and multiplier > 1:
             await channel.send(
@@ -427,6 +726,13 @@ class CoinsCog(commands.Cog):
                     color=COLOR_GOLD,
                 )
             )
+
+    async def open_admin_menu(self, interaction: discord.Interaction) -> None:
+        if not self._guard(interaction):
+            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+            return
+        view = CoinAdminView(self)
+        await interaction.response.send_message(embed=await view.embed(), view=view, ephemeral=True)
 
     @app_commands.command(name="my_coins", description="ดูเหรียญ Pandora ของฉัน")
     async def my_coins_command(self, interaction: discord.Interaction) -> None:
