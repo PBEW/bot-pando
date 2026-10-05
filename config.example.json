@@ -19,8 +19,7 @@
     "vip": false
   },
   "attendance": {
-    "warn_hours": 12,
-    "auto_close_hours": 16
+    "day_cutoff_hour": 1
   },
   "payment": {
     "account_name": "Pandora's Night Heaven",
@@ -233,5 +232,6 @@
     "shot_service": "drink_friend",
     "announce": true,
     "staff_percent": 100
-  }
+  },
+  "_comment_attendance": "ไม่มีปุ่มออกงาน — บอทตัดยอดการเข้างานของทุกคนอัตโนมัติทุกวันตอน day_cutoff_hour (1 = ตี 1)"
 }

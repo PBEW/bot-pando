@@ -171,7 +171,7 @@ HELP_TEXT = (
     "`/bill info` ดูบิล · `/bill paid` ยืนยันชำระด้วยมือ · `/bill cancel` ยกเลิกบิล\n\n"
     "**อื่น ๆ**\n"
     "`/top_donate` อันดับโดเนท · `/menu` เมนูร้าน · `/attendance_fix` แก้เวลาเข้างาน · `/cutoff` ตัดรอบ · `/summary` สรุปยอด\n"
-    "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` โพสต์กระดานเช็คชื่อ · `/on_duty` ใครอยู่ในกะ · `/health` สถานะระบบ · `/reload_config` โหลด config"
+    "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` โพสต์กระดานเช็คชื่อ · `/staff_today` มาทำงานวันนี้ · `/health` สถานะระบบ · `/reload_config` โหลด config"
 )
 
 
@@ -198,9 +198,9 @@ class AdminPanel(discord.ui.View):
         embed = await interaction.client.get_cog("AttendanceCog").current_hours_embed()
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="ใครอยู่ในกะ", emoji="🟢", style=discord.ButtonStyle.primary, custom_id="olp:admin:on_duty", row=0)
+    @discord.ui.button(label="มาทำงานวันนี้", emoji="🟢", style=discord.ButtonStyle.primary, custom_id="olp:admin:on_duty", row=0)
     async def on_duty(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        embed = await interaction.client.get_cog("AttendanceCog").on_duty_embed()
+        embed = await interaction.client.get_cog("AttendanceCog").today_embed()
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # แถว 2: จัดการ
@@ -284,7 +284,7 @@ class AdminPanelCog(commands.Cog):
             title="🛠️ Pandora · เมนูแอดมิน",
             description=(
                 "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคนกด\n\n"
-                "**ดูข้อมูล** — 📊 สรุปยอดรอบนี้ · 🕒 ชั่วโมงงาน · 🟢 ใครอยู่ในกะ\n"
+                "**ดูข้อมูล** — 📊 สรุปยอดรอบนี้ · 🕒 ชั่วโมงงาน · 🟢 มาทำงานวันนี้\n"
                 "**จัดการ** — 🏆 Top Donate · ✏️ แก้เวลาเข้างาน · ✂️ ตัดรอบทันที\n"
                 "**ระบบ** — 🩺 สถานะระบบ · 🔄 โหลด config ใหม่ · 📖 คำสั่งทั้งหมด\n\n"
                 "*ควรโพสต์ในห้องที่เห็นเฉพาะแอดมิน (คนอื่นกดก็ใช้ไม่ได้)*"

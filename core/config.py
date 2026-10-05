@@ -86,15 +86,6 @@ class Config:
     def vip_enabled(self) -> bool:
         return bool(self.get("features.vip", False))
 
-    # ------------------------------------------------------------ attendance
-    @property
-    def attendance_warn_hours(self) -> float:
-        return float(self.get("attendance.warn_hours", 12))
-
-    @property
-    def attendance_auto_close_hours(self) -> float:
-        return float(self.get("attendance.auto_close_hours", 16))
-
     # -------------------------------------------------------------- services
     @property
     def services(self) -> list[dict]:
