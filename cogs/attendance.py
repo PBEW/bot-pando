@@ -91,8 +91,8 @@ def format_prefs(cfg, prefs: dict, *, private: bool) -> str:
 
 class AvoidNoteModal(discord.ui.Modal, title="ยืนยันเข้างาน"):
     avoid_text = discord.ui.TextInput(
-        label="คนที่ไม่เข้าห้องด้วยวันนี้ (พิมพ์ชื่อ ไม่บังคับ)",
-        placeholder="เช่น ลูกค้าที่ยังไม่อยากเจอ / หมายเหตุถึงแอดมิน",
+        label="คนที่ไม่เข้าห้องด้วย (ไม่บังคับ)",
+        placeholder="พิมพ์ชื่อคนที่ไม่รับวันนี้ หรือหมายเหตุถึงแอดมิน",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=300,
