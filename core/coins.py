@@ -32,15 +32,38 @@ DEFAULTS = {
 
 DEFAULT_REWARDS = [
     {"key": "shoutout", "name": "ประกาศขอบคุณในห้องประกาศ", "emoji": "📣", "cost": 20, "type": "shoutout"},
-    {"key": "color_role", "name": "Role สีพิเศษ 30 วัน", "emoji": "🎨", "cost": 40, "type": "role", "role_id": 0, "days": 30},
-    {"key": "free_shot", "name": "Drink Friend ฟรี 1 shot", "emoji": "🥃", "cost": 60, "type": "service_free", "service": "drink_friend", "qty": 1},
-    {"key": "priority", "name": "จองพนักงานคนโปรดก่อน 1 ครั้ง", "emoji": "⭐", "cost": 80, "type": "manual"},
-    {"key": "free_short_date", "name": "Short Date ฟรี 20 นาที", "emoji": "☕", "cost": 100, "type": "service_free", "service": "short_date", "qty": 1},
-    {"key": "karaoke_half", "name": "Karaoke ลด 50%", "emoji": "🎤", "cost": 120, "type": "service_discount", "service": "karaoke", "percent": 50},
+    {"key": "title_role", "name": "ฉายาพิเศษ 30 วัน", "emoji": "🏷️", "cost": 50, "type": "role", "role_id": 0, "days": 30},
+    {"key": "prank", "name": "การ์ดแกล้ง 1 ใบ", "emoji": "🃏", "cost": 100, "type": "prank", "staff_bonus": 10},
+    {"key": "discount20", "name": "ส่วนลด 20 บาท (บิล 150 บาทขึ้นไป)", "emoji": "💸", "cost": 100,
+     "type": "discount_amount", "amount": 20, "min_bill": 150},
+    {"key": "ceo_command", "days": 90, "name": "สั่ง CEO ได้ 1 คำสั่ง", "emoji": "👑", "cost": 500, "type": "manual",
+     "note": "ทำในร้าน ไม่เกิน 10 นาที · ห้ามเรื่องเงิน/ส่วนตัว/18+/ทำให้อับอายจริง · CEO ขอเปลี่ยนคำสั่งได้",
+     "announce": "👑 {user} แลกสิทธิ์ **สั่ง CEO 1 คำสั่ง**! รอติดตามได้เลย"},
+    {"key": "hall_of_fame", "days": 90, "name": "ขึ้น Hall of Fame ในร้าน (ถาวร)", "emoji": "🖼️", "cost": 800, "type": "manual",
+     "announce": "🖼️ {user} ได้ขึ้น **Hall of Fame** ของ Pandora แล้ว!"},
+    {"key": "host_night", "days": 90, "name": "Host Night: เปิดร้านในชื่อคุณ 1 คืน", "emoji": "🏰", "cost": 1000, "type": "manual",
+     "note": "แอดมินจะติดต่อนัดวัน เลือกธีม/เพลง/ชื่อคืนได้ · ร้านเก็บค่าบริการตามปกติ",
+     "announce": "🏰 {user} แลก **Host Night**! เตรียมพบคืนพิเศษในชื่อของเขาเร็วๆ นี้",
+     "role_id": 0, "role_hours": 24},
+]
+
+DEFAULT_PRANKS = [
+    "🎂 ร้องเพลงวันเกิดใส่เพื่อน (ทั้งที่ไม่ใช่วันเกิด)",
+    "🤡 ใส่หมวก/ชุดตลกไปนั่งข้างเพื่อน 3 นาที",
+    "💌 อ่านจดหมายรักปลอมให้เพื่อนฟัง (ลูกค้าเขียนเอง)",
+    "🥤 แอบเอาแก้วของ CEO ไปซ่อน",
+    "💃 เต้นท่าตลกใส่เพื่อน 30 วินาที",
 ]
 
 # ประเภทคูปองที่แอดมินเลือกใช้ตอนเปิดบิล (role / shoutout ใช้ทันทีตอนแลก)
-BILL_VOUCHER_TYPES = ("service_free", "service_discount", "manual")
+BILL_VOUCHER_TYPES = ("service_free", "service_discount", "discount_amount")
+REWARD_TYPES = {
+    "shoutout": "📣 ประกาศขอบคุณ (บอททำให้ทันที)",
+    "role": "🏷️ Role ชั่วคราว (ใส่ role_id / 0 = แอดมินให้เอง)",
+    "discount_amount": "💸 ส่วนลดบาท (หักจากส่วนร้านเท่านั้น)",
+    "manual": "🎁 แอดมินจัดการเอง (ประกาศ + นัดวัน)",
+    "prank": "🃏 การ์ดแกล้ง (พนักงานกดรับ/ปฏิเสธ)",
+}
 
 
 def opt(cfg: Config, key: str):
@@ -55,13 +78,20 @@ def label(cfg: Config) -> str:
     return f"{opt(cfg, 'emoji')} {opt(cfg, 'name')}"
 
 
-def rewards(cfg: Config) -> list[dict]:
+def rewards(cfg: Config, *, include_retired: bool = False) -> list[dict]:
+    """รางวัลที่แลกได้ (retired = เลิกแลกแล้ว แต่คูปองที่ออกไปแล้วยังใช้ได้จนหมดอายุ)"""
     items = cfg.get("coins.rewards") or DEFAULT_REWARDS
+    if not include_retired:
+        items = [r for r in items if not r.get("retired")]
     return sorted(items, key=lambda r: int(r.get("cost", 0)))
 
 
 def reward(cfg: Config, key: str) -> dict | None:
-    return next((r for r in rewards(cfg) if r["key"] == key), None)
+    return next((r for r in rewards(cfg, include_retired=True) if r["key"] == key), None)
+
+
+def pranks(cfg: Config) -> list[str]:
+    return list(cfg.get("coins.pranks") or DEFAULT_PRANKS)
 
 
 # ------------------------------------------------------------------ ยอด
@@ -122,13 +152,33 @@ def bill_coins(cfg: Config, job: dict) -> int:
 
 
 # --------------------------------------------------------------- คูปอง
-def voucher_discount(cfg: Config, reward_item: dict | None, service_keys: list[str], amounts: dict[str, float]) -> tuple[float, str | None]:
-    """คืน (ส่วนลด, ปัญหา) — ปัญหาไม่ใช่ None แปลว่าคูปองนี้ใช้กับบิลนี้ไม่ได้"""
+def voucher_discount(
+    cfg: Config,
+    reward_item: dict | None,
+    service_keys: list[str],
+    amounts: dict[str, float],
+    *,
+    total: float | None = None,
+    staff_share: float | None = None,
+) -> tuple[float, str | None]:
+    """คืน (ส่วนลด, ปัญหา) — ปัญหาไม่ใช่ None แปลว่าคูปองนี้ใช้กับบิลนี้ไม่ได้
+
+    total=None ข้ามการตรวจยอดขั้นต่ำ (ใช้ตอนตรวจเร็วๆ ก่อนรู้ราคา)
+    discount_amount ลดได้ไม่เกินส่วนของร้าน (total - staff_share) → พนักงานได้เต็ม ร้านไม่ติดลบ
+    """
     if reward_item is None:
         return 0.0, "ไม่พบรางวัลของคูปองนี้ในระบบแล้ว"
     kind = reward_item.get("type")
     if kind == "manual":
         return 0.0, None
+    if kind == "discount_amount":
+        minimum = float(reward_item.get("min_bill", 0))
+        if total is not None and total < minimum:
+            return 0.0, f"คูปองนี้ใช้กับบิล {minimum:,.0f} บาทขึ้นไป (บิลนี้ {total:,.0f} บาท)"
+        discount = float(reward_item.get("amount", 0))
+        if total is not None and staff_share is not None:
+            discount = min(discount, max(total - staff_share, 0))
+        return round(discount, 2), None
     key = reward_item.get("service")
     svc = cfg.service(key) if key else None
     if svc is None:

@@ -263,6 +263,10 @@ class AdminPanel(discord.ui.View):
             embed=discord.Embed(description="โหลด config ใหม่เรียบร้อยค่ะ", color=COLOR_OK), ephemeral=True
         )
 
+    @discord.ui.button(label="เหรียญ Pandora", emoji="🪙", style=discord.ButtonStyle.primary, custom_id="olp:admin:coins", row=1)
+    async def coins(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("CoinsCog").open_admin_menu(interaction)
+
     @discord.ui.button(label="คำสั่งทั้งหมด", emoji="📖", style=discord.ButtonStyle.secondary, custom_id="olp:admin:help", row=2)
     async def help(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.send_message(
@@ -289,7 +293,7 @@ class AdminPanelCog(commands.Cog):
             description=(
                 "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคนกด\n\n"
                 "**ดูข้อมูล** — 📊 สรุปยอดรอบนี้ · 🕒 ชั่วโมงงาน · 🟢 มาทำงานวันนี้\n"
-                "**จัดการ** — 🏆 Top Donate · ⚙️ ตั้งค่าร้าน (ห้อง/บริการ/ราคา/ส่วนแบ่ง/ชำระเงิน) · ✏️ แก้เวลาเข้างาน · ✂️ ตัดรอบทันที\n"
+                "**จัดการ** — 🏆 Top Donate · ⚙️ ตั้งค่าร้าน (ห้อง/บริการ/ราคา/ส่วนแบ่ง/ชำระเงิน) · 🪙 เหรียญ Pandora (ดู/ปรับเหรียญ, คูปอง, อีเวนต์, รางวัล) · ✏️ แก้เวลาเข้างาน · ✂️ ตัดรอบทันที\n"
                 "**ระบบ** — 🩺 สถานะระบบ · 🔄 โหลด config ใหม่ · 📖 คำสั่งทั้งหมด\n\n"
                 "*ควรโพสต์ในห้องที่เห็นเฉพาะแอดมิน (คนอื่นกดก็ใช้ไม่ได้)*"
             ),

@@ -205,7 +205,7 @@ class RequestPanelCog(commands.Cog):
         if coin_enabled(self.cfg):
             lines += [
                 f"\n{coin_label(self.cfg)} — ได้ 1 เหรียญทุก {coin_opt(self.cfg, 'baht_per_coin')} บาท "
-                "สะสมแลกรางวัล (Drink ฟรี, Short Date ฟรี, Role พิเศษ ฯลฯ)",
+                "สะสมแลกรางวัล (การ์ดแกล้ง 🃏, ส่วนลด, สั่ง CEO 👑, Host Night 🏰 ฯลฯ)",
                 "🪙 **เหรียญของฉัน** · 🎁 **แลกรางวัล** · 🏅 **อันดับนักสะสม**",
             ]
         if self.cfg.vip_enabled:

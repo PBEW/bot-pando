@@ -41,6 +41,12 @@
         "label": "รับลูกค้าหลายคนในห้อง VIP",
         "emoji": "👥",
         "default": false
+      },
+      {
+        "key": "prank_ok",
+        "label": "รับการ์ดแกล้ง (ไปแกล้ง/ยอมให้แกล้ง)",
+        "emoji": "🃏",
+        "default": false
       }
     ]
   },
@@ -357,13 +363,71 @@
         "type": "shoutout"
       },
       {
+        "key": "title_role",
+        "name": "ฉายาพิเศษ 30 วัน",
+        "emoji": "🏷️",
+        "cost": 50,
+        "type": "role",
+        "role_id": 0,
+        "days": 30
+      },
+      {
+        "key": "prank",
+        "name": "การ์ดแกล้ง 1 ใบ",
+        "emoji": "🃏",
+        "cost": 100,
+        "type": "prank",
+        "staff_bonus": 10
+      },
+      {
+        "key": "discount20",
+        "name": "ส่วนลด 20 บาท (บิล 150 บาทขึ้นไป)",
+        "emoji": "💸",
+        "cost": 100,
+        "type": "discount_amount",
+        "amount": 20,
+        "min_bill": 150
+      },
+      {
+        "key": "ceo_command",
+        "days": 90,
+        "name": "สั่ง CEO ได้ 1 คำสั่ง",
+        "emoji": "👑",
+        "cost": 500,
+        "type": "manual",
+        "note": "ทำในร้าน ไม่เกิน 10 นาที · ห้ามเรื่องเงิน/ส่วนตัว/18+/ทำให้อับอายจริง · CEO ขอเปลี่ยนคำสั่งได้",
+        "announce": "👑 {user} แลกสิทธิ์ **สั่ง CEO 1 คำสั่ง**! รอติดตามได้เลย"
+      },
+      {
+        "key": "hall_of_fame",
+        "days": 90,
+        "name": "ขึ้น Hall of Fame ในร้าน (ถาวร)",
+        "emoji": "🖼️",
+        "cost": 800,
+        "type": "manual",
+        "announce": "🖼️ {user} ได้ขึ้น **Hall of Fame** ของ Pandora แล้ว!"
+      },
+      {
+        "key": "host_night",
+        "days": 90,
+        "name": "Host Night: เปิดร้านในชื่อคุณ 1 คืน",
+        "emoji": "🏰",
+        "cost": 1000,
+        "type": "manual",
+        "note": "แอดมินจะติดต่อนัดวัน เลือกธีม/เพลง/ชื่อคืนได้ · ร้านเก็บค่าบริการตามปกติ",
+        "announce": "🏰 {user} แลก **Host Night**! เตรียมพบคืนพิเศษในชื่อของเขาเร็วๆ นี้",
+        "role_id": 0,
+        "role_hours": 24
+      },
+      {
         "key": "color_role",
         "name": "Role สีพิเศษ 30 วัน",
         "emoji": "🎨",
         "cost": 40,
         "type": "role",
         "role_id": 0,
-        "days": 30
+        "days": 30,
+        "retired": true
       },
       {
         "key": "free_shot",
@@ -372,14 +436,16 @@
         "cost": 60,
         "type": "service_free",
         "service": "drink_friend",
-        "qty": 1
+        "qty": 1,
+        "retired": true
       },
       {
         "key": "priority",
         "name": "จองพนักงานคนโปรดก่อน 1 ครั้ง",
         "emoji": "⭐",
         "cost": 80,
-        "type": "manual"
+        "type": "manual",
+        "retired": true
       },
       {
         "key": "free_short_date",
@@ -388,7 +454,8 @@
         "cost": 100,
         "type": "service_free",
         "service": "short_date",
-        "qty": 1
+        "qty": 1,
+        "retired": true
       },
       {
         "key": "karaoke_half",
@@ -397,8 +464,16 @@
         "cost": 120,
         "type": "service_discount",
         "service": "karaoke",
-        "percent": 50
+        "percent": 50,
+        "retired": true
       }
+    ],
+    "pranks": [
+      "🎂 ร้องเพลงวันเกิดใส่เพื่อน (ทั้งที่ไม่ใช่วันเกิด)",
+      "🤡 ใส่หมวก/ชุดตลกไปนั่งข้างเพื่อน 3 นาที",
+      "💌 อ่านจดหมายรักปลอมให้เพื่อนฟัง (ลูกค้าเขียนเอง)",
+      "🥤 แอบเอาแก้วของ CEO ไปซ่อน",
+      "💃 เต้นท่าตลกใส่เพื่อน 30 วินาที"
     ]
   }
 }
