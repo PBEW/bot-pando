@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -50,7 +51,25 @@ def _new_key(prefix: str, existing: set[str]) -> str:
 
 
 async def log_change(bot: commands.Bot, user: discord.abc.User, text: str) -> None:
-    """บันทึกการแก้ตั้งค่าเข้าห้องแอดมิน (+ ห้อง log ถ้าตั้ง channels.log)"""
+    """บันทึกการแก้ตั้งค่าเข้าห้องแอดมิน (+ ห้อง log ถ้าตั้ง channels.log)
+
+    ส่งแบบเบื้องหลัง ไม่รอ — ผู้เรียกต้องตอบ Discord ภายใน 3 วินาที
+    """
+    task = asyncio.create_task(_send_change_log(bot, user, text))
+    _pending_logs.add(task)  # เก็บอ้างอิงไว้ กัน task ถูกเก็บขยะก่อนส่งเสร็จ
+    task.add_done_callback(_on_log_done)
+
+
+_pending_logs: set[asyncio.Task] = set()
+
+
+def _on_log_done(task: asyncio.Task) -> None:
+    _pending_logs.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        log.warning("ส่งบันทึกการตั้งค่าไม่สำเร็จ: %s", task.exception())
+
+
+async def _send_change_log(bot: commands.Bot, user: discord.abc.User, text: str) -> None:
     embed = discord.Embed(description=f"⚙️ {user.mention} {text}", color=COLOR_INFO)
     payments = bot.get_cog("PaymentsCog")
     if payments is not None:

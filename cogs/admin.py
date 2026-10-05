@@ -93,10 +93,12 @@ class AdminCog(commands.Cog):
         except Exception as exc:  # noqa: BLE001 - แจ้งแอดมินแทนการเงียบ
             await interaction.followup.send(f"❌ จัดรูปแบบไม่สำเร็จ: `{exc}`", ephemeral=True)
             return
+        backfilled = await self.bot.get_cog("PaymentsCog").backfill_sheet()
         url = await self.bot.sheets.spreadsheet_url()
+        extra = f"\n📥 เติมบิลที่ตกหล่นลงชีต {backfilled} ใบ" if backfilled else ""
         await interaction.followup.send(
             embed=discord.Embed(
-                description=f"✅ จัดรูปแบบแล้ว: {', '.join(f'`{t}`' for t in done)}\n{url}",
+                description=f"✅ จัดรูปแบบแล้ว: {', '.join(f'`{t}`' for t in done)}{extra}\n{url}",
                 color=COLOR_OK,
             ),
             ephemeral=True,

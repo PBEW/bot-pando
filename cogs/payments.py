@@ -440,12 +440,29 @@ class PaymentsCog(commands.Cog):
                 self.cfg.vip_tier_name(job.get("vip_tier")) if job.get("vip_tier") else "ลูกค้าทั่วไป",
                 group_note + (job.get("note") or ""),
             ])
-        title = await self.db.get_meta("current_cycle") or cycle_title(self.cfg)
+        # ลงแท็บของรอบที่ชำระเงินจริง (บิลที่เติมย้อนหลังจะไม่ไปปนรอบปัจจุบัน)
+        paid = from_iso(job.get("paid_at"))
+        title = cycle_title(self.cfg, paid.astimezone(tz)) if paid else cycle_title(self.cfg)
         ok = True
         for row in rows:
             ok = await self.bot.sheets.append_job_row(title, row) and ok
         if ok:
             await self.db.update_job(job["id"], sheet_logged=1)
+
+    async def backfill_sheet(self) -> int:
+        """ลงชีตให้บิลที่ชำระแล้วแต่ยังไม่เคยลง (เช่น ตอน Sheets ยังไม่มีสิทธิ์เขียน) — คืนจำนวนบิลที่ลงได้"""
+        if not self.bot.sheets.ready:
+            return 0
+        done = 0
+        for job in await self.db.jobs_by_status(["PAID", "COMPLETED"]):
+            if job.get("sheet_logged"):
+                continue
+            await self.log_job_to_sheet(job)
+            if (await self.db.get_job(job["id"]) or {}).get("sheet_logged"):
+                done += 1
+        if done:
+            log.info("เติมบิลที่ตกหล่นลง Google Sheets %d ใบ", done)
+        return done
 
     # -------------------------------------------------- บิลค้าง (เรียกจากลูป)
     def _bill_minutes(self, key: str, default: int) -> int:
