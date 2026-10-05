@@ -11,6 +11,12 @@ from core.embeds import COLOR_MAIN
 from core.utils import is_admin, purge_old_panels
 
 
+COMFORT_NOTE = (
+    "ทุกการเข้าห้องบริการขึ้นอยู่กับ**ความสบายใจของพนักงานเป็นหลัก** "
+    "พนักงานมีสิทธิ์ปฏิเสธหรือขอหยุดได้ทุกเมื่อ ขอบคุณที่เคารพกันนะคะ"
+)
+
+
 def menu_embed(cfg) -> discord.Embed:
     """เมนูบริการ + ราคา สร้างจาก config.json (แก้ราคาใน config แล้วเมนูเปลี่ยนตาม)"""
     embed = discord.Embed(title=f"📜 เมนูบริการ · {cfg.shop_name}", color=COLOR_MAIN)
@@ -56,6 +62,7 @@ def menu_embed(cfg) -> discord.Embed:
             ),
             inline=False,
         )
+    embed.add_field(name="💜 สำคัญ", value=COMFORT_NOTE, inline=False)
     embed.set_footer(text="เปิดบิล/ชำระเงินผ่านแอดมิน · บริการ 18+ ต้องตกลงกับพนักงานก่อนทุกครั้ง")
     return embed
 
@@ -98,6 +105,7 @@ class RequestPanel(discord.ui.View):
     async def staff_today(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         # private=False: ลูกค้าเห็นแค่ใครเข้างานและรับงานอะไร ไม่เห็นรายชื่อคนที่พนักงานไม่รับ
         embed = await interaction.client.get_cog("AttendanceCog").today_embed(private=False)
+        embed.add_field(name="💜 สำคัญ", value=COMFORT_NOTE, inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(
@@ -174,6 +182,7 @@ class RequestPanelCog(commands.Cog):
                 "💎 **ซื้อ VIP / ต่ออายุ** — เลือกแพ็กเกจ ใส่โค้ดส่วนลด และชำระเงินได้เอง",
                 "🔍 **ตรวจสอบสิทธิ์ VIP** — ดูแพ็กเกจและวันหมดอายุของคุณ",
             ]
+        lines.append(f"\n> 💜 **สำคัญ:** {COMFORT_NOTE}")
         lines.append("\n*กรุณาเปิดรับข้อความ DM จากสมาชิกในเซิร์ฟเวอร์ก่อนใช้งานนะคะ*")
 
         embed = discord.Embed(

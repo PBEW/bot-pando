@@ -78,6 +78,30 @@ class AdminCog(commands.Cog):
         )
         return embed
 
+    @app_commands.command(name="sheets_format", description="จัดรูปแบบ Google Sheets ใหม่ (สี/หัวตาราง/สรุป) — ข้อมูลเดิมไม่หาย (แอดมิน)")
+    async def sheets_format(self, interaction: discord.Interaction) -> None:
+        if not self._guard(interaction):
+            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+            return
+        if not self.bot.sheets.ready:
+            await interaction.response.send_message("ยังไม่ได้เชื่อมต่อ Google Sheets ค่ะ (ดู `/health`)", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        title = await self.db.get_meta("current_cycle") or cycle_title(self.cfg)
+        try:
+            done = await self.bot.sheets.restyle(title)
+        except Exception as exc:  # noqa: BLE001 - แจ้งแอดมินแทนการเงียบ
+            await interaction.followup.send(f"❌ จัดรูปแบบไม่สำเร็จ: `{exc}`", ephemeral=True)
+            return
+        url = await self.bot.sheets.spreadsheet_url()
+        await interaction.followup.send(
+            embed=discord.Embed(
+                description=f"✅ จัดรูปแบบแล้ว: {', '.join(f'`{t}`' for t in done)}\n{url}",
+                color=COLOR_OK,
+            ),
+            ephemeral=True,
+        )
+
     @app_commands.command(name="reload_config", description="โหลดไฟล์ config.json ใหม่ (แอดมิน)")
     async def reload_config(self, interaction: discord.Interaction) -> None:
         if not self._guard(interaction):
