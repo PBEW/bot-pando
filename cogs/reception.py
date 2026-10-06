@@ -1118,7 +1118,12 @@ class ReceptionCog(commands.Cog):
 
         payments = self.bot.get_cog("PaymentsCog")
         extend_job = await self.db.get_job(extend_id)
-        await payments.start_job_payment(extend_job)
+        if extend_job["total_price"] <= 0:
+            # ต่อเวลาฟรี (VIP/สิทธิ์ฟรี) — บันทึกชำระเลย ไม่ส่ง QR 0 บาทที่จะโดนยกเลิกอัตโนมัติทีหลัง
+            await payments.mark_job_paid(extend_id, self.bot.user)
+            await payments.notify_admin_text(f"🎟️ บิลต่อเวลา `#{extend_id}` ฟรี (สิทธิ์ VIP) — บันทึกชำระแล้วอัตโนมัติ")
+        else:
+            await payments.start_job_payment(extend_job)
         for sid in staff_ids:
             await send_dm(
                 self.bot,
@@ -1294,9 +1299,11 @@ class ReceptionCog(commands.Cog):
         if not self._admin_guard(interaction):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
+        # ตอบ Discord ก่อน (ต้องภายใน 3 วิ) แล้วค่อยส่ง DM / อัปเดตชีต
+        await interaction.response.defer(ephemeral=True)
         payments = self.bot.get_cog("PaymentsCog")
         ok, msg = await payments.cancel_job(job_id, interaction.user, reason)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=discord.Embed(description=msg, color=COLOR_OK if ok else COLOR_DANGER),
             ephemeral=True,
         )
@@ -1307,9 +1314,10 @@ class ReceptionCog(commands.Cog):
         if not self._admin_guard(interaction):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True)
         payments = self.bot.get_cog("PaymentsCog")
         ok, msg = await payments.mark_job_paid(job_id, interaction.user)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=discord.Embed(description=msg, color=COLOR_OK if ok else COLOR_DANGER),
             ephemeral=True,
         )

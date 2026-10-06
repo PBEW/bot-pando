@@ -56,11 +56,21 @@ class TimeParseError(ValueError):
     pass
 
 
-def parse_start_time(raw: str, tz: ZoneInfo) -> dt.datetime:
+def _shift_year(value: dt.datetime, years: int) -> dt.datetime:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:  # 29/02 ในปีที่ไม่มีวันนั้น
+        return value.replace(year=value.year + years, day=28)
+
+
+def parse_start_time(raw: str, tz: ZoneInfo, *, past: bool = False) -> dt.datetime:
     """รับเวลาเริ่มงานจากผู้ใช้ แล้วคืนค่าเป็น datetime (UTC)
 
     รองรับ: ว่าง / now / ตอนนี้ , +15 (อีก 15 นาที), 20:30, 20.30,
     05/09 20:30, 05/09/2026 20:30, 2026-09-05 20:30
+
+    วันที่ไม่ระบุปี: past=False (จองงาน) ถ้าย้อนหลังเกิน 30 วันถือเป็นปีหน้า (31/12 จองข้ามไป 01/01)
+    past=True (แก้เวลาย้อนหลัง) ถ้าอยู่ในอนาคตถือเป็นปีที่แล้ว
     """
     text = (raw or "").strip().lower()
     now_local = dt.datetime.now(tz)
@@ -83,17 +93,26 @@ def parse_start_time(raw: str, tz: ZoneInfo) -> dt.datetime:
         ("%d/%m %H:%M", True, False),
         ("%H:%M", False, False),
     ):
+        candidate, use_fmt = text, fmt
+        if has_date and not has_year:
+            # ใส่ปีก่อน parse — ถ้าปล่อยให้ strptime ใช้ปี 1900 (ไม่ใช่ปีอธิกสุรทิน) จะพิมพ์ 29/02 ไม่ได้
+            parts = text.split(" ", 1)
+            if len(parts) == 2:
+                candidate, use_fmt = f"{parts[0]}/{now_local.year} {parts[1]}", "%d/%m/%Y %H:%M"
         try:
-            parsed = dt.datetime.strptime(text, fmt)
+            parsed = dt.datetime.strptime(candidate, use_fmt)
         except ValueError:
             continue
 
         if not has_date:
             parsed = parsed.replace(year=now_local.year, month=now_local.month, day=now_local.day)
-        elif not has_year:
-            parsed = parsed.replace(year=now_local.year)
 
         result = parsed.replace(tzinfo=tz)
+        if has_date and not has_year:
+            if not past and result < now_local - dt.timedelta(days=30):
+                result = _shift_year(result, 1)
+            elif past and result > now_local + dt.timedelta(days=1):
+                result = _shift_year(result, -1)
         # เวลาแบบไม่ระบุวัน ถ้าย้อนหลังเกิน 6 ชม. ให้ถือว่าเป็นของวันพรุ่งนี้
         if not has_date and result < now_local - dt.timedelta(hours=6):
             result += dt.timedelta(days=1)

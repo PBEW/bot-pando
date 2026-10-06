@@ -827,6 +827,10 @@ class CoinsCog(commands.Cog):
         if not coins.enabled(self.cfg):
             await interaction.response.send_message("ระบบเหรียญปิดใช้งานชั่วคราวค่ะ", ephemeral=True)
             return
+        if not coins.rewards(self.cfg):
+            # Discord ไม่ยอมให้ส่งเมนูเลือกที่ไม่มีตัวเลือก — แจ้งลูกค้าแทน
+            await interaction.response.send_message("ตอนนี้ยังไม่มีรางวัลให้แลกค่ะ รอแอดมินเพิ่มรางวัลนะคะ", ephemeral=True)
+            return
         bal = await coins.balance(self.db, interaction.user.id)
         lines = [
             f"{r.get('emoji', '')} **{r['name']}** — {r['cost']} เหรียญ" + (" ✅" if bal >= int(r["cost"]) else "")
@@ -951,7 +955,8 @@ class CoinsCog(commands.Cog):
             await interaction.response.edit_message(content="เหรียญไม่พอค่ะ", embed=None, view=None)
             return
         attendance = self.bot.get_cog("AttendanceCog")
-        today = await attendance.today_prefs() if attendance else {}
+        # เฉพาะคนที่ยังอยู่ในร้าน — คนที่ออกงานแล้วรับการ์ดไม่ได้ และไม่นับเป็นเป้าหมายที่เปิดรับ
+        today = await attendance.today_prefs(on_duty_only=True) if attendance else {}
         performers = [uid for uid, prefs in today.items() if "prank_ok" in prefs.get("accepts", [])]
         if not performers:
             await interaction.response.edit_message(
@@ -970,7 +975,9 @@ class CoinsCog(commands.Cog):
         uid = interaction.user.id
         cost = int(item["cost"])
         problem = None
-        if performer_id == uid:
+        if getattr(target, "bot", False):
+            problem = "เลือกบอทเป็นเป้าหมายไม่ได้ค่ะ"
+        elif performer_id == uid:
             # กันพนักงานส่งการ์ดให้ตัวเองเพื่อรับโบนัส (เท่ากับแลกเหรียญเป็นเงิน)
             problem = "ส่งการ์ดแกล้งให้ตัวเองไม่ได้ค่ะ — เลือกพนักงานคนอื่นนะคะ"
         elif target.id == performer_id:

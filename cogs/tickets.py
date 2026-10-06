@@ -58,8 +58,9 @@ class TicketCloseButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:  # type: ignore[override]
         cog: TicketsCog = interaction.client.get_cog("TicketsCog")  # type: ignore[assignment]
+        await interaction.response.defer(ephemeral=True)  # ปิดตั๋วต้องส่ง DM หลายที่ อาจเกิน 3 วิ
         await cog.close_ticket(self.ticket_id, reason=f"ปิดโดย {interaction.user.display_name}")
-        await interaction.response.send_message("ปิดการสนทนาเรียบร้อยค่ะ", ephemeral=True)
+        await interaction.followup.send("ปิดการสนทนาเรียบร้อยค่ะ", ephemeral=True)
 
 
 def ticket_admin_view(ticket_id: int) -> discord.ui.View:

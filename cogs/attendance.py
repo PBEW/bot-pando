@@ -40,7 +40,7 @@ def fmt_hours(seconds: float) -> str:
 
 def parse_past_time(raw: str, tz) -> dt.datetime:
     """อ่านเวลาที่ผ่านมาแล้ว (ใช้ตอนแอดมินแก้เวลา) — เวลาแบบไม่ระบุวันที่อยู่ในอนาคตจะถือเป็นของเมื่อวาน"""
-    value = parse_start_time(raw, tz)
+    value = parse_start_time(raw, tz, past=True)
     now = now_utc()
     if value > now + dt.timedelta(minutes=1):
         value -= dt.timedelta(days=1)
@@ -298,10 +298,12 @@ class AttendanceCog(commands.Cog):
         await self._set_on_duty(interaction.guild, user.id, True)
         await self._notify_admin(f"🟢 <@{user.id}> เข้างาน {discord_ts(now)} · {summary}")
 
-    async def today_prefs(self) -> dict[int, dict]:
-        """{user_id: prefs} ของพนักงานที่เข้างานวันนี้ (ใช้ตอนแอดมินเปิดบิล)"""
+    async def today_prefs(self, *, on_duty_only: bool = False) -> dict[int, dict]:
+        """{user_id: prefs} ของพนักงานที่เข้างานวันนี้ (ใช้ตอนแอดมินเปิดบิล) — on_duty_only = เฉพาะคนที่ยังไม่ออกงาน"""
         rows = await self.db.fetchall(
-            "SELECT * FROM attendance WHERE clock_in >= ? ORDER BY clock_in", (to_iso(self.workday_start()),)
+            "SELECT * FROM attendance WHERE clock_in >= ?" + (" AND clock_out IS NULL" if on_duty_only else "")
+            + " ORDER BY clock_in",
+            (to_iso(self.workday_start()),),
         )
         return {row["user_id"]: load_prefs(row) for row in rows}
 
