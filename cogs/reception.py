@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core import coins
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, job_embed
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, job_embed, panel_embed
 from core.pricing import (
     job_staff_ids,
     job_staff_split,
@@ -1254,18 +1254,26 @@ class ReceptionCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:panel:")
 
-        embed = discord.Embed(
-            title="🎛️ Reception Control Panel",
-            description=(
-                f"แผงควบคุมสำหรับแอดมิน / พนักงานต้อนรับ · {self.cfg.shop_name}\n\n"
-                "🧾 **เปิดบิลใหม่** — เลือกลูกค้า พนักงาน บริการ ห้อง แล้วคำนวณราคาอัตโนมัติ\n"
-                "　• เลือกพนักงานได้หลายคน — คิดค่าพนักงานเพิ่มต่อคน ทุกคนต้องกดรับงานเอง\n"
-                "　• Drink Friend กรอกจำนวน shot ตอนยืนยัน\n"
-                "　• Erotic Service เลือกคู่กับ Short Date / Bed Room / Karaoke (บวกเวลาให้อัตโนมัติ)\n"
-                "⏱️ **ต่อเวลา / เพิ่มรอบ** — ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม\n"
-                "📋 **งานที่กำลังดำเนินอยู่** — ดูงานที่ยังไม่จบเวลา"
-            ),
-            color=COLOR_MAIN,
+        tips = [
+            "• เลือกพนักงานได้หลายคน — ทุกคนต้องกดรับงานเอง",
+            "• Drink Friend กรอกจำนวน shot ตอนยืนยัน",
+            "• Erotic Service เลือกคู่กับ Short Date / Bed Room / Karaoke (บวกเวลาให้อัตโนมัติ)",
+        ]
+        if self.cfg.vip_enabled:
+            tips.append("• 💎 ลูกค้า VIP ได้เวลาห้องเพิ่มอัตโนมัติ · Free Date เลือกบริการ **VIP Free Date**")
+        embed = panel_embed(
+            "🎛️ Reception · แผงรีเซปชั่น",
+            f"แผงควบคุมสำหรับแอดมิน / พนักงานต้อนรับ · {self.cfg.shop_name}",
+            [
+                ("🧾 จัดการบิล", [
+                    ("🧾 เปิดบิลใหม่", "เลือกลูกค้า · พนักงาน · บริการ · ห้อง — คิดราคาให้อัตโนมัติ"),
+                    ("⏱️ ต่อเวลา / เพิ่มรอบ", "ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม"),
+                    ("📋 งานที่กำลังดำเนินอยู่", "ดูงานที่ยังไม่จบเวลา"),
+                ]),
+                ("💡 ควรรู้", "\n".join(tips)),
+            ],
+            footer="ผลลัพธ์ของปุ่มเห็นเฉพาะคนกด",
+            guild=interaction.guild,
         )
         await interaction.channel.send(embed=embed, view=ReceptionPanel())
 

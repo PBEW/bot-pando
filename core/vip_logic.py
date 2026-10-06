@@ -124,11 +124,27 @@ def shop_day_start(cfg, now_local: dt.datetime) -> dt.datetime:
     return start
 
 
-def perks_lines(cfg) -> list[str]:
-    """ข้อความสิทธิ์ VIP สำหรับแสดงลูกค้า (สร้างจากค่าตั้งค่าจริง แก้ค่าแล้วข้อความเปลี่ยนตาม)"""
+def perks_lines(cfg, *, compact: bool = False) -> list[str]:
+    """ข้อความสิทธิ์ VIP สำหรับแสดงลูกค้า (สร้างจากค่าตั้งค่าจริง แก้ค่าแล้วข้อความเปลี่ยนตาม)
+
+    compact=True = ข้อความสั้นสำหรับแผงลูกค้า
+    """
     lines = list(vip_benefit(cfg, "extra_perks") or [])
     bonus = {k: int(m) for k, m in (vip_benefit(cfg, "bonus_minutes") or {}).items() if int(m) > 0}
     stack = [k for k in vip_benefit(cfg, "stack_services") or [] if k in bonus]
+    date_svc = cfg.service(VIP_DATE_KEY)
+    per_day = int(vip_benefit(cfg, "free_date_per_day"))
+    if compact:
+        by_minutes: dict[int, list[str]] = {}
+        for k, m in bonus.items():
+            by_minutes.setdefault(m, []).append(cfg.service_name(k))
+        lines += [f"เพิ่มเวลา **+{m} นาที** · {' · '.join(names)}" for m, names in by_minutes.items()]
+        lines += [f"{cfg.service_name(k)} ซ้อนเวลาได้ (VIP 2 ท่าน = +{bonus[k] * 2} นาที)" for k in stack]
+        if date_svc and per_day > 0:
+            lines.append(
+                f"**Free Date {int(date_svc.get('duration_minutes', 10))} นาที** วันละ {per_day} ครั้ง ทุกวันที่ร้านเปิด"
+            )
+        return lines
     if bonus:
         names = ", ".join(f"{cfg.service_name(k)} +{m} นาที" for k, m in bonus.items())
         lines.append(f"เพิ่มเวลาเข้าห้อง {names}")
@@ -137,8 +153,6 @@ def perks_lines(cfg) -> list[str]:
             f"เพิ่มเวลาซ้อนกันได้เฉพาะ {cfg.service_name(key)} "
             f"(ลูกค้า VIP 2 ท่านเข้าห้องด้วยกัน = +{bonus[key] * 2} นาที)"
         )
-    date_svc = cfg.service(VIP_DATE_KEY)
-    per_day = int(vip_benefit(cfg, "free_date_per_day"))
     if date_svc and per_day > 0:
         lines.append(
             f"Free Date กับพนักงาน {int(date_svc.get('duration_minutes', 10))} นาที ได้ {per_day} ครั้ง "
