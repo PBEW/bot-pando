@@ -818,10 +818,14 @@ class CoinsCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def rules_text(self) -> str:
-        return (
-            f"ได้ 1 เหรียญทุก {coins.opt(self.cfg, 'baht_per_coin')} บาท · เหรียญซื้อ/แลกเงิน/โอนไม่ได้ · "
-            f"ไม่มาใช้บริการ {int(coins.opt(self.cfg, 'expire_inactive_days')) // 30} เดือน เหรียญหมดอายุ"
-        )
+        days = int(coins.opt(self.cfg, "expire_inactive_days"))
+        if days <= 0:
+            expiry = "เหรียญไม่มีวันหมดอายุ"
+        elif days % 30 == 0:
+            expiry = f"ไม่มาใช้บริการ {days // 30} เดือน เหรียญหมดอายุ"
+        else:
+            expiry = f"ไม่มาใช้บริการ {days} วัน เหรียญหมดอายุ"
+        return f"ได้ 1 เหรียญทุก {coins.opt(self.cfg, 'baht_per_coin')} บาท · เหรียญซื้อ/แลกเงิน/โอนไม่ได้ · {expiry}"
 
     async def open_redeem(self, interaction: discord.Interaction) -> None:
         if not coins.enabled(self.cfg):
@@ -1051,6 +1055,7 @@ class CoinsCog(commands.Cog):
         ):
             return None
         info = json.loads(await self.db.get_meta(f"prank:{voucher_id}") or "{}")
+        await self.db.execute("DELETE FROM meta WHERE key = ?", (f"prank:{voucher_id}",))  # การ์ดจบแล้ว ไม่ต้องเก็บ
         item = coins.reward(self.cfg, v["reward_key"]) or {}
         if accepted:
             bonus = float(item.get("staff_bonus", 0))
@@ -1071,6 +1076,9 @@ class CoinsCog(commands.Cog):
 
     async def decide_prank(self, interaction: discord.Interaction, voucher_id: int, accepted: bool) -> None:
         info = json.loads(await self.db.get_meta(f"prank:{voucher_id}") or "{}")
+        if not info:
+            await interaction.response.edit_message(content="การ์ดนี้ถูกดำเนินการไปแล้วค่ะ", embed=None, view=None)
+            return
         if interaction.user.id != info.get("performer"):
             await interaction.response.send_message("ปุ่มนี้สำหรับพนักงานที่ได้รับการ์ดค่ะ", ephemeral=True)
             return

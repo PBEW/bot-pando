@@ -137,6 +137,20 @@ def is_admin(member: discord.abc.User | discord.Member, admin_role_id: int) -> b
     return any(r.id == admin_role_id for r in member.roles)
 
 
+def staff_members(guild: discord.Guild | None, staff_role_ids) -> list[discord.Member]:
+    """สมาชิกที่มี Role พนักงาน (ไม่รวมบอท) เรียงตามชื่อ — ใช้ร่วมกันทุกเมนูที่ต้องเลือกพนักงาน"""
+    if guild is None:
+        return []
+    members = {
+        m.id: m
+        for role_id in staff_role_ids
+        if (role := guild.get_role(role_id)) is not None
+        for m in role.members
+        if not m.bot
+    }
+    return sorted(members.values(), key=lambda m: m.display_name.lower())
+
+
 # ---------------------------------------------------------------------- DM
 async def send_dm(
     bot: discord.Client,

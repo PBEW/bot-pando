@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import logging
 import re
 
@@ -31,6 +30,7 @@ from core.utils import (
     parse_start_time,
     purge_old_panels,
     send_dm,
+    staff_members,
     to_iso,
 )
 from core.vip_logic import active_tier, cycle_month_key
@@ -243,7 +243,7 @@ class OpenBillWizard(discord.ui.View):
 
         # ถ้าตั้ง roles.staff ไว้ ให้แสดงรายชื่อพนักงานเป็นเมนู (ไม่ต้องพิมพ์ค้นหา ชื่อฟอนต์พิเศษก็เลือกได้)
         # คนที่เข้างานวันนี้ขึ้นก่อน พร้อมบอกงานที่รับ
-        staff = sorted(self._staff_members(opener), key=lambda m: m.id not in self.today)
+        staff = sorted(staff_members(getattr(opener, "guild", None), self.cfg.staff_role_ids), key=lambda m: m.id not in self.today)
         if 0 < len(staff) <= 25:
             self.staff_select = discord.ui.Select(
                 placeholder=f"💃 เลือกพนักงาน{staff_hint}",
@@ -375,20 +375,6 @@ class OpenBillWizard(discord.ui.View):
             self.cfg, item, self.service_keys, quote.amounts, total=quote.total_price, staff_share=staff_share
         )
         return min(discount, quote.total_price), problem
-
-    def _staff_members(self, opener: discord.Member) -> list[discord.Member]:
-        guild = getattr(opener, "guild", None)
-        role_ids = set(self.cfg.staff_role_ids)
-        if guild is None or not role_ids:
-            return []
-        members = {
-            m.id: m
-            for role_id in role_ids
-            if (role := guild.get_role(role_id)) is not None
-            for m in role.members
-            if not m.bot
-        }
-        return sorted(members.values(), key=lambda m: m.display_name.lower())
 
     def _room_options(self) -> list[discord.SelectOption]:
         rooms = self.cfg.rooms_for_services(self.service_keys) if self.service_keys else self.cfg.rooms

@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.embeds import COLOR_MAIN
-from core.utils import discord_ts, from_iso, is_admin, now_utc, to_iso
+from core.utils import discord_ts, from_iso, is_admin, now_utc, staff_members, to_iso
 
 log = logging.getLogger("olp.dailycheck")
 
@@ -49,22 +49,12 @@ class DailyCheckCog(commands.Cog):
             "SELECT * FROM daily_checkin WHERE day = ? ORDER BY checked_at", (day,)
         )
 
-    def _staff_members(self, guild: discord.Guild | None) -> list[discord.Member]:
-        if guild is None:
-            return []
-        members: dict[int, discord.Member] = {}
-        for role_id in self.cfg.staff_role_ids:
-            role = guild.get_role(role_id)
-            if role is not None:
-                members.update({m.id: m for m in role.members if not m.bot})
-        return sorted(members.values(), key=lambda m: m.display_name.lower())
-
     async def board_embed(self, guild: discord.Guild | None, day: str) -> discord.Embed:
         rows = await self._rows(day)
         came = [r for r in rows if r["status"] == STATUS_IN]
         off = [r for r in rows if r["status"] == STATUS_OFF]
         answered = {r["user_id"] for r in rows}
-        waiting = [m for m in self._staff_members(guild) if m.id not in answered]
+        waiting = [m for m in staff_members(guild, self.cfg.staff_role_ids) if m.id not in answered]
 
         def lines(items: list[dict]) -> str:
             text = "\n".join(f"<@{r['user_id']}> · {discord_ts(from_iso(r['checked_at']))}" for r in items)

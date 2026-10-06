@@ -129,6 +129,11 @@ def admin_slip_view(kind: str, ref_id: int) -> discord.ui.View:
     return view
 
 
+def _minutes(delta: dt.timedelta) -> int:
+    # ใช้ total_seconds — .seconds ไม่นับส่วนวัน (1440 นาทีจะกลายเป็น 0)
+    return int(delta.total_seconds() // 60)
+
+
 # --------------------------------------------------------------------- cog
 class PaymentsCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -360,6 +365,7 @@ class PaymentsCog(commands.Cog):
         ):
             return False, "บิลนี้ถูกดำเนินการไปแล้ว (ชำระแล้ว/ยกเลิกแล้ว)"
         await self.release_pending_slip(job["customer_id"], "JOB", job_id)
+        await self.clear_job_meta(job_id)
         job = await self.db.get_job(job_id)
         coins_cog = self.bot.get_cog("CoinsCog")
         if coins_cog is not None:
@@ -390,22 +396,16 @@ class PaymentsCog(commands.Cog):
         await self.log_job_to_sheet(job)
         return True, f"ยืนยันสลิปแล้ว โดย {admin.mention} — บิล `#{job_id}` สถานะ **PAID**"
 
-    async def cancel_job(
-        self, job_id: int, admin: discord.abc.User, reason: str | None = None
-    ) -> tuple[bool, str]:
-        job = await self.db.get_job(job_id)
-        if job is None:
-            return False, "ไม่พบบิลนี้ในระบบ"
-        if job["status"] == "CANCELLED":
-            return False, "บิลนี้ถูกยกเลิกไปแล้ว"
+    async def cancel_core(self, job: dict, from_statuses: list[str]) -> bool:
+        """งานยกเลิกบิลที่ทุกทางต้องทำเหมือนกัน (แอดมินยกเลิก / พนักงานปฏิเสธ / โดเนทหมดเวลา)
 
-        if not await self.db.claim_job(
-            job_id,
-            ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID", "COMPLETED"],
-            status="CANCELLED",
-            cancelled_at=to_iso(now_utc()),
-        ):
-            return False, "บิลนี้ถูกยกเลิกไปแล้ว"
+        เปลี่ยนสถานะแบบมีเงื่อนไข → ปลดช่องรอสลิป → ดึงเหรียญ/คืนคูปอง → คืนสิทธิ์ฟรี
+        → ถอนเวลาต่อออกจากบิลแม่ → ลบตัวกันแจ้งเตือนซ้ำ · คืน False ถ้ามีคนดำเนินการบิลนี้ไปก่อนแล้ว
+        (ส่วนการแจ้งเตือนแต่ละทางต่างกัน ให้ผู้เรียกทำเอง)
+        """
+        job_id = job["id"]
+        if not await self.db.claim_job(job_id, from_statuses, status="CANCELLED", cancelled_at=to_iso(now_utc())):
+            return False
         await self.release_pending_slip(job["customer_id"], "JOB", job_id)
         coins_cog = self.bot.get_cog("CoinsCog")
         if coins_cog is not None:
@@ -425,6 +425,40 @@ class PaymentsCog(commands.Cog):
                     end_time=to_iso(new_end),
                     duration_minutes=max(parent["duration_minutes"] - job["duration_minutes"], 0),
                 )
+        await self.clear_job_meta(job_id)
+        return True
+
+    async def clear_job_meta(self, job_id: int) -> None:
+        """ลบตัวกันแจ้งเตือนซ้ำของบิลที่จบแล้ว (ไม่ให้ตาราง meta โตขึ้นเรื่อยๆ)"""
+        await self.db.execute(
+            "DELETE FROM meta WHERE key IN (?, ?, ?, ?)",
+            tuple(f"stale:{kind}:{job_id}" for kind in ("staff", "pay", "slip", "slipseen")),
+        )
+
+    async def purge_finished_meta(self) -> int:
+        """ลบตัวกันแจ้งเตือนของบิล/การ์ดแกล้งที่จบไปแล้ว (เก็บกวาดข้อมูลเก่าที่ค้างจากเวอร์ชันก่อน)"""
+        suffix_id = "CAST(substr(key, length(rtrim(key, '0123456789')) + 1) AS INTEGER)"
+        removed = await self.db.execute_count(
+            f"DELETE FROM meta WHERE key LIKE 'stale:%' AND {suffix_id} IN "
+            "(SELECT id FROM jobs WHERE status IN ('PAID', 'COMPLETED', 'CANCELLED'))"
+        )
+        removed += await self.db.execute_count(
+            f"DELETE FROM meta WHERE key LIKE 'prank:%' AND {suffix_id} IN "
+            "(SELECT id FROM coin_vouchers WHERE status != 'PENDING')"
+        )
+        return removed
+
+    async def cancel_job(
+        self, job_id: int, admin: discord.abc.User, reason: str | None = None
+    ) -> tuple[bool, str]:
+        job = await self.db.get_job(job_id)
+        if job is None:
+            return False, "ไม่พบบิลนี้ในระบบ"
+        if job["status"] == "CANCELLED":
+            return False, "บิลนี้ถูกยกเลิกไปแล้ว"
+
+        if not await self.cancel_core(job, ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID", "COMPLETED"]):
+            return False, "บิลนี้ถูกยกเลิกไปแล้ว"
 
         note = discord.Embed(
             title="❌ บิลถูกยกเลิก",
@@ -464,18 +498,8 @@ class PaymentsCog(commands.Cog):
 
     async def reject_job_by_staff(self, job: dict, staff: discord.abc.User, reason: str) -> bool:
         """พนักงานปฏิเสธงานเพราะแอดมินคีย์บิลผิด — ยกเลิกบิลเงียบๆ (ลูกค้ายังไม่เคยรู้เรื่องบิลนี้)"""
-        if not await self.db.claim_job(
-            job["id"], ["PENDING_STAFF"], status="CANCELLED", cancelled_at=to_iso(now_utc())
-        ):
+        if not await self.cancel_core(job, ["PENDING_STAFF"]):
             return False
-        coins_cog = self.bot.get_cog("CoinsCog")
-        if coins_cog is not None:
-            await coins_cog.on_job_cancelled(job)  # คืนคูปองที่ใช้กับบิลนี้
-
-        if job.get("quota_services") and job.get("quota_cycle"):
-            await release_quota_for_job(
-                self.db, job["customer_id"], job["quota_services"], job["quota_cycle"]
-            )
 
         for sid in job_staff_ids(job):
             if sid != staff.id:
@@ -606,7 +630,7 @@ class PaymentsCog(commands.Cog):
                 if now - from_iso(job["created_at"]) >= staff_wait and await self._once(f"stale:staff:{jid}"):
                     waiting = [s for s in job_staff_ids(job) if s not in (job.get("accepted_by") or [])]
                     await self.notify_admin_text(
-                        f"⏳ บิล `#{jid}` รอ {' '.join(f'<@{s}>' for s in waiting)} กดรับงานมาเกิน {staff_wait.seconds // 60} นาทีแล้ว "
+                        f"⏳ บิล `#{jid}` รอ {' '.join(f'<@{s}>' for s in waiting)} กดรับงานมาเกิน {_minutes(staff_wait)} นาทีแล้ว "
                         "— ทักพนักงาน หรือยกเลิกแล้วเปิดบิลใหม่ด้วย `/bill cancel`"
                     )
 
@@ -615,7 +639,7 @@ class PaymentsCog(commands.Cog):
                 deadline = max(accepted + pay_cancel, from_iso(job["start_time"]))
                 if now >= deadline:
                     ok, _ = await self.cancel_job(
-                        jid, self.bot.user, f"ไม่ได้ชำระเงินภายในเวลาที่กำหนด ({pay_cancel.seconds // 60} นาที)"
+                        jid, self.bot.user, f"ไม่ได้ชำระเงินภายในเวลาที่กำหนด ({_minutes(pay_cancel)} นาที)"
                     )
                     if ok:
                         await self.notify_admin_text(
@@ -644,7 +668,7 @@ class PaymentsCog(commands.Cog):
                     await self.db.set_meta(seen_key, to_iso(now))
                 elif now - from_iso(first_seen) >= slip_wait and await self._once(f"stale:slip:{jid}"):
                     await self.notify_admin_text(
-                        f"🔎 สลิปบิล `#{jid}` รอแอดมินตรวจมาเกิน {slip_wait.seconds // 60} นาทีแล้ว "
+                        f"🔎 สลิปบิล `#{jid}` รอแอดมินตรวจมาเกิน {_minutes(slip_wait)} นาทีแล้ว "
                         f"(ลูกค้า <@{job['customer_id']}> ยอด {money(job['total_price'])})"
                     )
 

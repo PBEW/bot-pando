@@ -13,7 +13,7 @@ from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN
 from core.pricing import split_revenue
-from core.utils import from_iso, money, now_utc, send_dm, to_iso
+from core.utils import from_iso, money, now_utc, send_dm, staff_members, to_iso
 
 log = logging.getLogger("olp.donate")
 
@@ -144,7 +144,7 @@ class DonateCog(commands.Cog):
             )
             return
 
-        staff = [m for m in self._staff_members(interaction.guild) if m.id != interaction.user.id]
+        staff = [m for m in staff_members(interaction.guild, self.cfg.staff_role_ids) if m.id != interaction.user.id]
         embed = discord.Embed(
             title="💜 โดเนทให้พนักงาน",
             description=(
@@ -155,18 +155,6 @@ class DonateCog(commands.Cog):
             color=COLOR_MAIN,
         )
         await interaction.response.send_message(embed=embed, view=DonateView(self, interaction.user, staff), ephemeral=True)
-
-    def _staff_members(self, guild: discord.Guild | None) -> list[discord.Member]:
-        if guild is None:
-            return []
-        members = {
-            m.id: m
-            for role_id in self.cfg.staff_role_ids
-            if (role := guild.get_role(role_id)) is not None
-            for m in role.members
-            if not m.bot
-        }
-        return sorted(members.values(), key=lambda m: m.display_name.lower())
 
     async def _pending_donation(self, customer_id: int) -> dict | None:
         for job in await self.db.jobs_by_status(["ACCEPTED", "SLIP_PENDING"]):
@@ -284,13 +272,9 @@ class DonateCog(commands.Cog):
                 continue
             if now - from_iso(job["created_at"]) < limit:
                 continue
-            if not await self.db.claim_job(job["id"], ["ACCEPTED"], status="CANCELLED", cancelled_at=to_iso(now)):
-                continue
             payments = self.bot.get_cog("PaymentsCog")
-            if payments is not None:
-                await payments.release_pending_slip(job["customer_id"], "JOB", job["id"])
-            else:
-                await self.db.clear_pending_slip(job["customer_id"], "JOB", job["id"])
+            if payments is None or not await payments.cancel_core(job, ["ACCEPTED"]):
+                continue
             await send_dm(
                 self.bot,
                 job["customer_id"],
