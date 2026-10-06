@@ -25,6 +25,7 @@ from core.vip_logic import (
     vip_benefit,
     compute_new_expiry,
     cycle_month_key,
+    duration_label,
     free_upgrade_expiry,
     next_streak_months,
 )
@@ -395,7 +396,8 @@ class VipCog(commands.Cog):
             current_streak=int(existing["streak_months"]) if existing else 0,
             same_tier_renewal=same_tier,
             still_active=still_active,
-            months_added=months,
+            # ให้เป็นวัน: นับเดือนสะสมเฉพาะส่วนที่ครบ 30 วัน
+            months_added=months // 30 if unit == "day" else months,
         )
 
         role_note = await self._swap_role(guild_id, customer_id, existing, tier_cfg)
@@ -632,38 +634,61 @@ class VipCog(commands.Cog):
         )
 
     # ----------------------------------------------------------- คำสั่ง
-    @app_commands.command(name="vip_grant", description="ให้สิทธิ์ VIP ด้วยมือ (แอดมิน) — ให้ได้ทุกระดับ รวม Obsession")
-    @app_commands.describe(member="สมาชิก", tier="ระดับ VIP", months="จำนวนเดือน (ค่าเริ่มต้น 1 เดือน)")
-    @app_commands.choices(
-        tier=[
-            app_commands.Choice(name=t["name"], value=t["key"])
-            for t in [
-                {"key": "lace", "name": "VIP Lace"},
-                {"key": "desire", "name": "VIP Desire"},
-                {"key": "obsession", "name": "VIP Obsession"},
-            ]
-        ]
+    @app_commands.command(name="vip_grant", description="มอบ VIP ให้สมาชิก (แอดมิน) — 1 วัน ถึง 6 เดือน")
+    @app_commands.describe(
+        member="สมาชิกที่จะมอบ VIP",
+        days="จำนวนวัน (1-180) — ใส่อย่างใดอย่างหนึ่งกับ months",
+        months="จำนวนเดือน (1-6)",
+        tier="ระดับ VIP (เว้นว่าง = ระดับแรก)",
     )
     async def vip_grant(
         self,
         interaction: discord.Interaction,
         member: discord.Member,
-        tier: app_commands.Choice[str],
-        months: app_commands.Range[int, 1, 60] = 1,
+        days: app_commands.Range[int, 1, 180] | None = None,
+        months: app_commands.Range[int, 1, 6] | None = None,
+        tier: str | None = None,
     ) -> None:
         if not is_admin(interaction.user, self.cfg.admin_role_id):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
-        await self.grant_vip(interaction, member, tier.value, months)
+        if days and months:
+            await interaction.response.send_message("ใส่ **days** หรือ **months** อย่างใดอย่างหนึ่งค่ะ", ephemeral=True)
+            return
+        unit, amount = ("day", days) if days else ("month", months or 1)
+        tier_key = tier or ((self.cfg.vip_tiers or [{}])[0].get("key") or "")
+        await self.grant_vip(interaction, member, tier_key, amount, unit=unit)
+
+    @vip_grant.autocomplete("tier")
+    async def _tier_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        return [
+            app_commands.Choice(name=t["name"][:100], value=t["key"])
+            for t in self.cfg.vip_tiers
+            if current.lower() in t["name"].lower()
+        ][:25]
 
     async def grant_vip(
-        self, interaction: discord.Interaction, member: discord.Member, tier_key: str, months: int
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        tier_key: str,
+        months: int,
+        *,
+        unit: str = "month",
     ) -> None:
-        """ให้สิทธิ์ VIP ด้วยมือ (ใช้ทั้งจาก /vip_grant และเมนูแอดมิน) — ผู้เรียกต้องตรวจสิทธิ์แอดมินก่อน"""
+        """มอบ VIP ด้วยมือ (ใช้ทั้งจาก /vip_grant และเมนูแอดมิน) — unit = "day" | "month" · ผู้เรียกต้องตรวจสิทธิ์แอดมินก่อน"""
+        if not self.cfg.vip_enabled:
+            await interaction.response.send_message(
+                "ระบบ VIP ยังปิดอยู่ค่ะ — เปิดที่ ⚙️ ตั้งค่าร้าน → 💎 VIP ก่อน", ephemeral=True
+            )
+            return
         if self.cfg.vip_tier(tier_key) is None:
             await interaction.response.send_message(
                 f"ยังไม่ได้ตั้งค่าระดับ `{tier_key}` ใน config (vip_tiers)", ephemeral=True
             )
+            return
+        if member.bot:
+            await interaction.response.send_message("มอบ VIP ให้บอทไม่ได้ค่ะ", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -672,18 +697,25 @@ class VipCog(commands.Cog):
                 guild_id=interaction.guild_id,
                 customer_id=member.id,
                 tier_key=tier_key,
-                unit="month",
+                unit=unit,
                 months=months,
             )
         except ValueError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
+        duration = duration_label(unit, months)
 
         await send_dm(
             self.bot,
             member.id,
-            embed=self._welcome_embed("🎉 แอดมินให้สิทธิ์ VIP", tier_cfg, new_expiry_local),
+            embed=self._welcome_embed(f"🎁 คุณได้รับ VIP {duration}!", tier_cfg, new_expiry_local),
         )
+        payments = self.bot.get_cog("PaymentsCog")
+        if payments is not None:
+            await payments.notify_admin_text(
+                f"💎 {interaction.user.mention} มอบ **{tier_cfg['name']}** {duration} ให้ {member.mention} "
+                f"— หมดอายุ {fmt_datetime(new_expiry_local, self.cfg.tz)}"
+            )
         await self._check_streak_upgrade(interaction.guild_id, member.id, tier_cfg, new_streak)
 
         await interaction.followup.send(
@@ -692,6 +724,7 @@ class VipCog(commands.Cog):
                 [
                     ("👤", "สมาชิก", member.mention),
                     ("💎", "ระดับ", tier_cfg["name"]),
+                    ("⏳", "ระยะเวลา", f"+{duration}"),
                     ("📅", "หมดอายุ", fmt_datetime(new_expiry_local, self.cfg.tz)),
                 ],
                 note=role_note.strip() or None,

@@ -62,8 +62,27 @@ def compute_new_expiry(
     if unit == "month":
         new_date = add_calendar_months(base.date(), package_months)
         return dt.datetime.combine(new_date, base.time(), tzinfo=base.tzinfo)
+    if unit == "day":  # แอดมินให้สิทธิ์เป็นวัน (package_months = จำนวนวัน)
+        return base + dt.timedelta(days=package_months)
 
     return base + dt.timedelta(days=365)
+
+
+# ตัวเลือกระยะเวลาที่แอดมินให้ VIP ได้ (unit, จำนวน, ป้ายชื่อ) — สูงสุด 6 เดือน
+GRANT_DURATIONS = [
+    ("day", 1, "1 วัน"),
+    ("day", 3, "3 วัน"),
+    ("day", 7, "7 วัน"),
+    ("day", 14, "14 วัน"),
+    ("month", 1, "1 เดือน"),
+    ("month", 2, "2 เดือน"),
+    ("month", 3, "3 เดือน"),
+    ("month", 6, "6 เดือน"),
+]
+
+
+def duration_label(unit: str, amount: int) -> str:
+    return f"{amount} วัน" if unit == "day" else f"{amount} เดือน"
 
 
 def free_upgrade_expiry(previous_expiry: dt.datetime, now_local: dt.datetime) -> dt.datetime:

@@ -160,7 +160,8 @@ class PaymentsCog(commands.Cog):
         if sent is None:
             await self.notify_admin_text(
                 f"⚠️ ส่ง DM แจ้งยอดชำระบิล `#{job['id']}` ถึง <@{job['customer_id']}> ไม่สำเร็จ "
-                f"(ลูกค้าปิด DM)"
+                f"(ลูกค้าปิด DM)",
+                topic="slip",
             )
         return sent is not None
 
@@ -280,7 +281,7 @@ class PaymentsCog(commands.Cog):
 
         embed = discord.Embed(title=title, description=desc, color=COLOR_GOLD)
         embed.set_image(url=record["slip_url"])
-        await self.notify_admin(embed=embed, view=admin_slip_view(kind, ref_id))
+        await self.notify_admin(embed=embed, view=admin_slip_view(kind, ref_id), topic="slip")
 
         await interaction.edit_original_response(
             embed=dm_embed(
@@ -674,7 +675,8 @@ class PaymentsCog(commands.Cog):
                 elif now - from_iso(first_seen) >= slip_wait and await self._once(f"stale:slip:{jid}"):
                     await self.notify_admin_text(
                         f"🔎 สลิปบิล `#{jid}` รอแอดมินตรวจมาเกิน {_minutes(slip_wait)} นาทีแล้ว "
-                        f"(ลูกค้า <@{job['customer_id']}> ยอด {money(job['total_price'])})"
+                        f"(ลูกค้า <@{job['customer_id']}> ยอด {money(job['total_price'])})",
+                        topic="slip",
                     )
 
     # -------------------------------------------------------------- utils
@@ -684,8 +686,12 @@ class PaymentsCog(commands.Cog):
         content: str | None = None,
         embed: discord.Embed | None = None,
         view: discord.ui.View | None = None,
+        topic: str | None = None,
     ) -> discord.Message | None:
-        channel = self.bot.get_channel(self.cfg.channel_id("admin"))
+        """ส่งเข้าห้องแอดมิน — topic = ห้องแยกตามเรื่อง (ticket / slip / attendance) ถ้าตั้งไว้ ไม่ตั้ง = ห้องแอดมิน"""
+        channel = self.bot.get_channel(self.cfg.channel_id(topic)) if topic else None
+        if channel is None:
+            channel = self.bot.get_channel(self.cfg.channel_id("admin"))
         if channel is None:
             log.warning("ไม่พบห้องแอดมิน (channels.admin) ใน config")
             return None
@@ -698,8 +704,8 @@ class PaymentsCog(commands.Cog):
             kwargs["view"] = view
         return await channel.send(**kwargs)
 
-    async def notify_admin_text(self, text: str) -> None:
-        await self.notify_admin(content=text)
+    async def notify_admin_text(self, text: str, *, topic: str | None = None) -> None:
+        await self.notify_admin(content=text, topic=topic)
 
 
 async def setup(bot: commands.Bot) -> None:
