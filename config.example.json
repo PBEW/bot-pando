@@ -8,9 +8,10 @@
     "announce": 0,
     "log": 0
   },
-  "_comment_roles": "roles.staff ใส่ได้หลาย Role เป็น list | roles.adult_verified = Role ยืนยันอายุ 18+ (ลูกค้าต้องมี Role นี้ถึงจะเปิดบิลที่มีบริการ adult_only ได้ ใส่ 0 = ไม่ตรวจ)",
+  "_comment_roles": "roles.staff ใส่ได้หลาย Role เป็น list | roles.reception = Role รีเซปชั่น ใช้ /panel reception ได้ (หลาย Role ใส่เป็น list) | roles.adult_verified = Role ยืนยันอายุ 18+ (ลูกค้าต้องมี Role นี้ถึงจะเปิดบิลที่มีบริการ adult_only ได้ ใส่ 0 = ไม่ตรวจ)",
   "roles": {
     "admin": 0,
+    "reception": 0,
     "staff": 0,
     "on_duty": 0,
     "adult_verified": 0

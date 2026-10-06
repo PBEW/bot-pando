@@ -64,6 +64,13 @@ class Config:
         return int(self.get("roles.admin", 0) or 0)
 
     @property
+    def reception_role_ids(self) -> list[int]:
+        """roles.reception = Role รีเซปชั่น ใช้แผง /panel reception ได้ (เปิดบิล/ต่อเวลา/ดูงาน) โดยไม่ต้องเป็นแอดมิน"""
+        raw = self.get("roles.reception", 0) or 0
+        values = raw if isinstance(raw, list) else [raw]
+        return [int(v) for v in values if int(v or 0)]
+
+    @property
     def staff_role_ids(self) -> list[int]:
         """roles.staff ใส่ได้ทั้งตัวเลขเดียว หรือ list หลาย Role (เช่น แยกกลุ่มโฮสต์)"""
         raw = self.get("roles.staff", 0) or 0

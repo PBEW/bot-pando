@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core import coins
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, job_embed, panel_embed
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, STATUS_LABEL, dm_embed, job_embed, panel_embed
 from core.pricing import (
     job_staff_ids,
     job_staff_split,
@@ -25,6 +25,7 @@ from core.utils import (
     discord_ts,
     from_iso,
     is_admin,
+    is_reception,
     money,
     now_utc,
     parse_start_time,
@@ -38,6 +39,7 @@ from cogs.attendance import accept_label
 
 log = logging.getLogger("olp.reception")
 
+NOT_RECEPTION = "เฉพาะแอดมิน / รีเซปชั่นเท่านั้นค่ะ"
 ACTIVE_STATUSES = ("PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID")
 
 
@@ -517,10 +519,18 @@ class OpenBillWizard(discord.ui.View):
         return await active_tier(self.cog.db, self.customer_id, dt.datetime.now(self.cfg.tz))
 
     async def summary_embed(self) -> discord.Embed:
+        need_room = self._requires_room()
+        steps = [
+            ("ลูกค้า", bool(self.customer_id)),
+            ("พนักงาน", bool(self.staff_ids)),
+            ("บริการ", bool(self.service_keys)),
+            *([("ห้อง", bool(self.room_key))] if need_room else []),
+        ]
+        progress = "　".join(f"{'✅' if done else '⬜'} {name}" for name, done in steps)
         embed = discord.Embed(
             title="🧾 เปิดบิลใหม่",
-            description="เลือกข้อมูลให้ครบ แล้วกดปุ่ม **กรอกเวลา & ยืนยันเปิดบิล**",
-            color=COLOR_MAIN,
+            description=f"{progress}\n┗ เลือกให้ครบ แล้วกด **กรอกเวลา & ยืนยันเปิดบิล**",
+            color=COLOR_OK if all(done for _, done in steps) else COLOR_MAIN,
         )
         if len(self.customers) > 1:
             others = " ".join(f"<@{c.id}>" for c in self.customers if c.id != self.customer_id)
@@ -528,22 +538,22 @@ class OpenBillWizard(discord.ui.View):
         else:
             customer_text = f"<@{self.customer_id}>" if self.customer_id else "*ยังไม่เลือก*"
         embed.add_field(
-            name="ลูกค้า" + (f" ({len(self.customers)} คน)" if len(self.customers) > 1 else ""),
+            name="👤 ลูกค้า" + (f" ({len(self.customers)} คน)" if len(self.customers) > 1 else ""),
             value=customer_text,
             inline=True,
         )
         embed.add_field(
-            name="พนักงาน" + (f" ({len(self.staff_ids)} คน)" if len(self.staff_ids) > 1 else ""),
+            name="💃 พนักงาน" + (f" ({len(self.staff_ids)} คน)" if len(self.staff_ids) > 1 else ""),
             value=" ".join(f"<@{s}>" for s in self.staff_ids) if self.staff_ids else "*ยังไม่เลือก*",
             inline=True,
         )
         embed.add_field(
-            name="ห้อง",
-            value=self.cfg.room_name(self.room_key) if self.room_key else "*ยังไม่เลือก*",
+            name="🚪 ห้อง",
+            value=self.cfg.room_name(self.room_key) if self.room_key else ("*ยังไม่เลือก*" if need_room else "ไม่ต้องใช้ห้อง"),
             inline=True,
         )
         embed.add_field(
-            name="บริการ",
+            name="🛎️ บริการ",
             value=self.cfg.service_names(self.service_keys) if self.service_keys else "*ยังไม่เลือก*",
             inline=False,
         )
@@ -571,11 +581,12 @@ class OpenBillWizard(discord.ui.View):
                 item = coins.reward(self.cfg, self.voucher["reward_key"]) or {}
                 voucher_line = f"\n• 🎟️ คูปอง {item.get('name', '')} — -{money(discount)} (ร้านออก พนักงานได้เต็ม)"
             embed.add_field(
-                name="ราคาโดยประมาณ",
+                name="💰 ราคาโดยประมาณ",
                 value=(
                     f"{quote.breakdown}{voucher_line}\n"
-                    f"**รวม {money(quote.total_price - discount)}** · {quote.duration_minutes} นาที"
-                    + (f"\n{self.cfg.vip_tier_name(tier)} — คิดราคา/สิทธิ์ตามระดับอัตโนมัติ" if tier else "")
+                    f"━━━━━━━━━━━━\n"
+                    f"**รวม {money(quote.total_price - discount)}**　⏱️ {quote.duration_minutes} นาที"
+                    + (f"\n💎 {self.cfg.vip_tier_name(tier)} — คิดราคา/สิทธิ์ตามระดับอัตโนมัติ" if tier else "")
                     + unit_note
                 ),
                 inline=False,
@@ -594,7 +605,7 @@ class OpenBillWizard(discord.ui.View):
 
         warnings = self.staff_warnings()
         if warnings:
-            embed.add_field(name="เช็คพนักงาน", value="\n".join(warnings)[:1024], inline=False)
+            embed.add_field(name="🔎 เช็คพนักงาน", value="\n".join(warnings)[:1024], inline=False)
 
         ready = self.customer_id and self.staff_ids and self.service_keys
         problem = self._validate() if ready else None
@@ -752,22 +763,28 @@ class ExtendWizard(discord.ui.View):
         )
 
     async def summary_embed(self) -> discord.Embed:
-        embed = discord.Embed(title="⏱️ ต่อเวลา / เพิ่มรอบ (EXTEND)", color=COLOR_MAIN)
+        steps = [("บิลเดิม", bool(self.job_id)), ("แพ็กเกจต่อเวลา", bool(self.service_keys))]
+        embed = discord.Embed(
+            title="⏱️ ต่อเวลา / เพิ่มรอบ",
+            description="　".join(f"{'✅' if done else '⬜'} {name}" for name, done in steps)
+            + "\n┗ เลือกบิลและแพ็กเกจ แล้วกด **ยืนยันต่อเวลา**",
+            color=COLOR_OK if all(done for _, done in steps) else COLOR_MAIN,
+        )
         if self.job_id:
             job = self.jobs[self.job_id]
             end = from_iso(job["end_time"])
             staff = " ".join(f"<@{s}>" for s in job_staff_ids(job))
             embed.add_field(
-                name="บิลเดิม",
+                name=f"🧾 บิลเดิม `#{job['id']}`",
                 value=(
-                    f"`#{job['id']}` · ลูกค้า <@{job['customer_id']}> · พนักงาน {staff}\n"
-                    f"{self.cfg.service_names(job['services'])}\n"
-                    f"เวลาจบปัจจุบัน: {discord_ts(end)}"
+                    f"👤 <@{job['customer_id']}>　💃 {staff}\n"
+                    f"🛎️ {self.cfg.service_names(job['services'])}\n"
+                    f"🔴 จบปัจจุบัน {discord_ts(end)}"
                 ),
                 inline=False,
             )
         else:
-            embed.add_field(name="บิลเดิม", value="*ยังไม่เลือก*", inline=False)
+            embed.add_field(name="🧾 บิลเดิม", value="*ยังไม่เลือก*", inline=False)
 
         if self.service_keys and self.job_id:
             job = self.jobs[self.job_id]
@@ -781,9 +798,14 @@ class ExtendWizard(discord.ui.View):
                 staff_count=len(job_staff_ids(job)),
                 customer_count=1 + len(job.get("co_customers") or []),
             )
+            new_end = from_iso(job["end_time"]) + dt.timedelta(minutes=quote.duration_minutes)
             embed.add_field(
-                name="แพ็กเกจต่อเวลา",
-                value=f"{quote.breakdown}\n**รวม {money(quote.total_price)}** · +{quote.duration_minutes} นาที",
+                name="💰 แพ็กเกจต่อเวลา",
+                value=(
+                    f"{quote.breakdown}\n━━━━━━━━━━━━\n"
+                    f"**รวม {money(quote.total_price)}**　⏱️ +{quote.duration_minutes} นาที\n"
+                    f"🔴 จบใหม่ {discord_ts(new_end)}"
+                ),
                 inline=False,
             )
             problem = self._validate()
@@ -863,8 +885,8 @@ class ReceptionCog(commands.Cog):
 
     # ------------------------------------------------------------- panels
     async def open_bill_panel(self, interaction: discord.Interaction) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         attendance = self.bot.get_cog("AttendanceCog")
         today = await attendance.today_prefs() if attendance else {}
@@ -874,8 +896,8 @@ class ReceptionCog(commands.Cog):
         )
 
     async def open_extend_panel(self, interaction: discord.Interaction) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         now = now_utc()
         jobs = [
@@ -894,8 +916,8 @@ class ReceptionCog(commands.Cog):
         )
 
     async def show_active_jobs(self, interaction: discord.Interaction) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         now = now_utc()
         jobs = [
@@ -907,22 +929,35 @@ class ReceptionCog(commands.Cog):
             await interaction.response.send_message("ยังไม่มีงานค้างอยู่ค่ะ", ephemeral=True)
             return
 
-        embed = discord.Embed(title="📋 งานที่กำลังดำเนินอยู่", color=COLOR_INFO)
+        counts: dict[str, int] = {}
+        for job in jobs:
+            counts[job["status"]] = counts.get(job["status"], 0) + 1
+        embed = discord.Embed(
+            title=f"📋 งานที่กำลังดำเนินอยู่ ({len(jobs)})",
+            description="　".join(f"{STATUS_LABEL.get(k, k)} **{n}**" for k, n in counts.items()),
+            color=COLOR_INFO,
+        )
         for job in jobs[:20]:
             staff = " ".join(f"<@{s}>" for s in job_staff_ids(job))
             embed.add_field(
-                name=f"บิล #{job['id']} · {job['status']}",
+                name=f"🧾 #{job['id']} · {STATUS_LABEL.get(job['status'], job['status'])}",
                 value=(
-                    f"<@{job['customer_id']}> ↔ {staff}\n"
-                    f"{self.cfg.service_names(job['services'])} · {money(job['total_price'])}\n"
-                    f"ห้อง {self.cfg.room_name(job.get('room'))} · จบ {discord_ts(from_iso(job['end_time']))}"
+                    f"👤 <@{job['customer_id']}>　💃 {staff}\n"
+                    f"🛎️ {self.cfg.service_names(job['services'])} · 💰 {money(job['total_price'])}\n"
+                    f"🚪 {self.cfg.room_name(job.get('room'))} · 🔴 จบ {discord_ts(from_iso(job['end_time']))}"
                 ),
                 inline=False,
             )
+        if len(jobs) > 20:
+            embed.set_footer(text=f"แสดง 20 จาก {len(jobs)} บิล")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def _admin_guard(self, interaction: discord.Interaction) -> bool:
         return is_admin(interaction.user, self.cfg.admin_role_id)
+
+    def _reception_guard(self, interaction: discord.Interaction) -> bool:
+        """แผงรีเซปชั่น: แอดมิน หรือ Role รีเซปชั่น (roles.reception)"""
+        return is_reception(interaction.user, self.cfg)
 
     async def room_busy_jobs(self, room_key: str) -> list[dict]:
         """บิลที่ยังไม่จบและใช้ห้องนี้อยู่ (ไว้เตือนตอนเปิดบิลซ้อนห้อง)"""
@@ -1248,10 +1283,10 @@ class ReceptionCog(commands.Cog):
     # ------------------------------------------------------ คำสั่ง slash
     panel_group = app_commands.Group(name="panel", description="โพสต์แผงควบคุมของบอท")
 
-    @panel_group.command(name="reception", description="โพสต์แผงควบคุมรีเซปชั่น (สำหรับแอดมิน)")
+    @panel_group.command(name="reception", description="โพสต์แผงควบคุมรีเซปชั่น (แอดมิน / Role รีเซปชั่น)")
     async def panel_reception(self, interaction: discord.Interaction) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:panel:")

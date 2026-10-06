@@ -126,7 +126,8 @@ class SettingsHome(AdminView):
                 f"💰 **ส่วนแบ่งพนักงาน** — ค่าเริ่มต้น {cfg.get('revenue_share.default_staff_percent', 60)}%\n"
                 "💳 **การชำระเงิน** — พร้อมเพย์ / QR\n"
                 "🔧 **อื่นๆ** — โดเนท, Top Donate, บิลค้าง, เวลาตัดยอด\n"
-                f"💎 **VIP** — {'🟢 เปิด' if cfg.vip_enabled else '⚪ ปิด'} · ราคา/อายุแพ็กเกจ, Role, สิทธิ์\n\n"
+                f"💎 **VIP** — {'🟢 เปิด' if cfg.vip_enabled else '⚪ ปิด'} · ราคา/อายุแพ็กเกจ, Role, สิทธิ์\n"
+                f"🔑 **Role รีเซปชั่น** — {len(cfg.reception_role_ids)} Role · ใช้แผง /panel reception ได้โดยไม่ต้องเป็นแอดมิน\n\n"
                 "*ทุกการแก้ไขจะแจ้งเข้าห้องแอดมิน · เพิ่ม/ลบบริการแล้ว แผงเปิดบิลจะอัปเดตเองตอนกดครั้งถัดไป*"
             ),
             color=COLOR_MAIN,
@@ -141,6 +142,7 @@ class SettingsHome(AdminView):
             discord.SelectOption(label="การชำระเงิน", value="payment", emoji="💳"),
             discord.SelectOption(label="อื่นๆ", value="other", emoji="🔧"),
             discord.SelectOption(label="VIP", value="vip", emoji="💎"),
+            discord.SelectOption(label="Role รีเซปชั่น", value="reception", emoji="🔑"),
         ],
     )
     async def pick(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
@@ -155,6 +157,8 @@ class SettingsHome(AdminView):
         elif choice == "share":
             view = ShareView(cfg)
             await interaction.response.edit_message(embed=view.embed(), view=view)
+        elif choice == "reception":
+            await interaction.response.send_modal(ReceptionRoleModal(cfg))
         elif choice == "vip":
             view = VipSettingsView(cfg)
             await interaction.response.edit_message(embed=view.embed(), view=view)
@@ -915,6 +919,48 @@ class OtherModal(discord.ui.Modal, title="ตั้งค่าอื่นๆ")
         await log_change(interaction.client, interaction.user, "แก้ตั้งค่าอื่นๆ\n" + "\n".join(f"• {c}" for c in changed))
         await interaction.response.send_message(
             embed=discord.Embed(description="✅ บันทึกแล้ว\n" + "\n".join(f"• {c}" for c in changed), color=COLOR_OK),
+            ephemeral=True,
+        )
+
+
+# ============================================================ Role รีเซปชั่น
+class ReceptionRoleModal(discord.ui.Modal, title="Role รีเซปชั่น"):
+    """Role ที่ใช้แผง /panel reception ได้ (เปิดบิล / ต่อเวลา / ดูงาน) — แยกจากแอดมิน"""
+
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        self.roles = discord.ui.TextInput(
+            label="Role ID (หลาย Role คั่นด้วย , · ว่าง = ปิด)",
+            default=", ".join(str(r) for r in cfg.reception_role_ids),
+            required=False,
+            max_length=200,
+            placeholder="คลิกขวาที่ Role → Copy Role ID",
+        )
+        self.add_item(self.roles)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cfg = interaction.client.cfg
+        parts = [p.strip() for p in self.roles.value.replace(" ", ",").split(",") if p.strip()]
+        if any(not p.isdigit() for p in parts):
+            await interaction.response.send_message("⚠️ Role ID ต้องเป็นตัวเลขเท่านั้นค่ะ", ephemeral=True)
+            return
+        ids = list(dict.fromkeys(int(p) for p in parts))
+        guild = interaction.guild
+        missing = [i for i in ids if guild is None or guild.get_role(i) is None]
+        if missing:
+            await interaction.response.send_message(
+                "⚠️ ไม่พบ Role ID นี้ในเซิร์ฟเวอร์: " + ", ".join(map(str, missing)), ephemeral=True
+            )
+            return
+        cfg.data.setdefault("roles", {})["reception"] = ids
+        _save(interaction)
+        text = " ".join(f"<@&{i}>" for i in ids) or "ไม่มี (เฉพาะแอดมิน)"
+        await log_change(interaction.client, interaction.user, f"ตั้ง Role รีเซปชั่น: {text}")
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                description=f"✅ บันทึกแล้ว — Role รีเซปชั่น: {text}\nใช้ `/panel reception` และปุ่มในแผงได้ทันที",
+                color=COLOR_OK,
+            ),
             ephemeral=True,
         )
 

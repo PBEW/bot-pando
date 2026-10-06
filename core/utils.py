@@ -137,6 +137,16 @@ def is_admin(member: discord.abc.User | discord.Member, admin_role_id: int) -> b
     return any(r.id == admin_role_id for r in member.roles)
 
 
+def is_reception(member: discord.abc.User | discord.Member, cfg) -> bool:
+    """แอดมิน หรือมี Role รีเซปชั่น (roles.reception)"""
+    if is_admin(member, cfg.admin_role_id):
+        return True
+    if not isinstance(member, discord.Member):
+        return False
+    allowed = set(cfg.reception_role_ids)
+    return any(r.id in allowed for r in member.roles)
+
+
 def staff_members(guild: discord.Guild | None, staff_role_ids) -> list[discord.Member]:
     """สมาชิกที่มี Role พนักงาน (ไม่รวมบอท) เรียงตามชื่อ — ใช้ร่วมกันทุกเมนูที่ต้องเลือกพนักงาน"""
     if guild is None:
