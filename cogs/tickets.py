@@ -131,7 +131,7 @@ class TicketsCog(commands.Cog):
         if topic:
             embed.add_field(name="รายละเอียด", value=topic[:1024], inline=False)
         payments = self.bot.get_cog("PaymentsCog")
-        msg = await payments.notify_admin(embed=embed, view=ticket_admin_view(ticket_id))
+        msg = await payments.notify_admin(embed=embed, view=ticket_admin_view(ticket_id), topic="ticket")
         if msg is not None:
             await self.db.update_ticket(ticket_id, admin_msg_id=msg.id)
 
@@ -260,7 +260,7 @@ class TicketsCog(commands.Cog):
         guild = self.bot.get_guild(ticket["guild_id"])
         name = await display_name(self.bot, guild, ticket["customer_id"])
         payments = self.bot.get_cog("PaymentsCog")
-        await payments.notify_admin_text(f"🔒 ปิดรายการสอบถาม `T#{ticket_id}` ({name}) — {reason}")
+        await payments.notify_admin_text(f"🔒 ปิดรายการสอบถาม `T#{ticket_id}` ({name}) — {reason}", topic="ticket")
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -52,7 +52,7 @@ def _new_key(prefix: str, existing: set[str]) -> str:
 
 
 async def log_change(bot: commands.Bot, user: discord.abc.User, text: str) -> None:
-    """บันทึกการแก้ตั้งค่าเข้าห้องแอดมิน (+ ห้อง log ถ้าตั้ง channels.log)
+    """บันทึกการแก้ตั้งค่าเข้าห้อง Log (ถ้าตั้ง channels.log) ไม่งั้นเข้าห้องแอดมิน
 
     ส่งแบบเบื้องหลัง ไม่รอ — ผู้เรียกต้องตอบ Discord ภายใน 3 วินาที
     """
@@ -72,12 +72,10 @@ def _on_log_done(task: asyncio.Task) -> None:
 
 async def _send_change_log(bot: commands.Bot, user: discord.abc.User, text: str) -> None:
     embed = discord.Embed(description=f"⚙️ {user.mention} {text}", color=COLOR_INFO)
+    # ตั้งห้อง Log ไว้ = ส่งไปห้อง Log อย่างเดียว (ห้องแอดมินไม่รก) · ไม่ตั้ง = ห้องแอดมิน
     payments = bot.get_cog("PaymentsCog")
     if payments is not None:
-        await payments.notify_admin(embed=embed)
-    log_channel = bot.get_channel(bot.cfg.channel_id("log"))
-    if log_channel is not None and log_channel.id != bot.cfg.channel_id("admin"):
-        await log_channel.send(embed=embed)
+        await payments.notify_admin(embed=embed, topic="log")
     log.info("ตั้งค่าร้าน: %s %s", user, text)
 
 
@@ -112,7 +110,7 @@ class BackButton(discord.ui.Button):
 
 
 def _setup_status(cfg) -> str:
-    missing = sum(1 for _, _, _, p, _, _ in BOT_SLOTS if not _slot_ids(cfg, p) and p != "channels.log")
+    missing = sum(1 for _, _, _, p, _, _ in BOT_SLOTS if not _slot_ids(cfg, p) and p not in OPTIONAL_SLOTS)
     return "✅ ครบ" if not missing else f"⚠️ ขาด {missing}"
 
 
@@ -1128,13 +1126,19 @@ BOT_SLOTS = [
     ("ch_admin", "channel", "🛠️ ห้องแอดมิน", "channels.admin", False, "บิล · สลิป · สรุปยอด · แจ้งเตือนแอดมิน"),
     ("ch_review", "channel", "💖 ห้องรีวิว", "channels.review", False, "รีวิวที่อนุมัติแล้ว"),
     ("ch_announce", "channel", "📣 ห้องประกาศ", "channels.announce", False, "Top Donate · โดเนท · ขอบคุณ · อีเวนต์"),
-    ("ch_log", "channel", "📝 ห้อง Log", "channels.log", False, "บันทึกการแก้ตั้งค่า (ไม่บังคับ)"),
+    ("ch_ticket", "channel", "💬 ห้องตั๋วสอบถาม", "channels.ticket", False, "ลูกค้าทัก DM / รับเรื่อง (ไม่ตั้ง = ห้องแอดมิน)"),
+    ("ch_slip", "channel", "🧾 ห้องตรวจสลิป", "channels.slip", False, "สลิปรอยืนยัน (ไม่ตั้ง = ห้องแอดมิน)"),
+    ("ch_attendance", "channel", "🕒 ห้องเข้างาน", "channels.attendance", False, "พนักงานเข้างาน/ตัดยอด (ไม่ตั้ง = ห้องแอดมิน)"),
+    ("ch_log", "channel", "📝 ห้อง Log", "channels.log", False, "บันทึกการแก้ตั้งค่า (ไม่ตั้ง = ห้องแอดมิน)"),
     ("role_admin", "role", "🛠️ Role แอดมิน", "roles.admin", False, "ใช้เมนูแอดมิน/ตั้งค่า/ยืนยันสลิป"),
     ("role_reception", "role", "🔑 Role รีเซปชั่น", "roles.reception", True, "ใช้แผง /panel reception"),
     ("role_staff", "role", "💃 Role พนักงาน", "roles.staff", True, "รับงาน · เข้างาน · เมนูพนักงาน"),
     ("role_on_duty", "role", "🟢 Role On Duty", "roles.on_duty", False, "บอทให้ตอนเข้างาน ถอดตอนตัดยอด"),
     ("role_adult", "role", "🔞 Role ยืนยันอายุ 18+", "roles.adult_verified", True, "ลูกค้าต้องมีถึงเปิดบิล 18+ ได้"),
 ]
+
+# ห้องที่ไม่ตั้งก็ได้ (ไม่ตั้ง = ส่งเข้าห้องแอดมิน) — ไม่นับเป็น "ยังขาด"
+OPTIONAL_SLOTS = {"channels.log", "channels.ticket", "channels.slip", "channels.attendance"}
 
 BOT_FEATURES = [
     ("donate.enabled", "💜 ระบบโดเนท", True),
@@ -1151,9 +1155,9 @@ def _slot_ids(cfg, path: str) -> list[int]:
     return [int(v) for v in values if int(v or 0)]
 
 
-def _slot_text(kind: str, ids: list[int]) -> str:
+def _slot_text(kind: str, ids: list[int], path: str = "") -> str:
     if not ids:
-        return "⚠️ ยังไม่ตั้ง"
+        return "↪️ ใช้ห้องแอดมิน" if path in OPTIONAL_SLOTS else "⚠️ ยังไม่ตั้ง"
     return " ".join(f"<#{i}>" if kind == "channel" else f"<@&{i}>" for i in ids)
 
 
@@ -1179,7 +1183,10 @@ class BotSetupView(AdminView):
                     label=name.split(" ", 1)[1][:100],
                     value=key,
                     emoji=name.split(" ", 1)[0],
-                    description=(("✅ ตั้งแล้ว · " if _slot_ids(cfg, path) else "⚠️ ยังไม่ตั้ง · ") + detail)[:100],
+                    description=(
+                        ("✅ ตั้งแล้ว · " if _slot_ids(cfg, path) else "▫️ " if path in OPTIONAL_SLOTS else "⚠️ ยังไม่ตั้ง · ")
+                        + detail
+                    )[:100],
                     default=key == slot,
                 )
                 for key, _, name, path, _, detail in BOT_SLOTS
@@ -1212,12 +1219,12 @@ class BotSetupView(AdminView):
     def embed(self) -> discord.Embed:
         cfg = self.cfg
         channels = rows_text(
-            [(n.split(" ", 1)[0], n.split(" ", 1)[1], _slot_text(k, _slot_ids(cfg, p))) for _, k, n, p, _, _ in BOT_SLOTS if k == "channel"]
+            [(n.split(" ", 1)[0], n.split(" ", 1)[1], _slot_text(k, _slot_ids(cfg, p), p)) for _, k, n, p, _, _ in BOT_SLOTS if k == "channel"]
         )
         roles = rows_text(
             [(n.split(" ", 1)[0], n.split(" ", 1)[1], _slot_text(k, _slot_ids(cfg, p))) for _, k, n, p, _, _ in BOT_SLOTS if k == "role"]
         )
-        missing = sum(1 for _, _, _, p, _, _ in BOT_SLOTS if not _slot_ids(cfg, p) and p != "channels.log")
+        missing = sum(1 for _, _, _, p, _, _ in BOT_SLOTS if not _slot_ids(cfg, p) and p not in OPTIONAL_SLOTS)
         embed = discord.Embed(
             title="🧭 ตั้งค่าระบบบอท",
             description=(
