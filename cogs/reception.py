@@ -33,7 +33,7 @@ from core.utils import (
     staff_members,
     to_iso,
 )
-from core.vip_logic import active_tier, cycle_month_key
+from core.vip_logic import active_tier, cycle_month_key, vip_only_problem
 from cogs.attendance import accept_label
 
 log = logging.getLogger("olp.reception")
@@ -558,6 +558,7 @@ class OpenBillWizard(discord.ui.View):
                 tier=tier,
                 staff_count=max(len(self.staff_ids), 1),
                 customer_count=max(len(self.customers), 1),
+                customer_ids=self.customer_ids or [self.customer_id],
             )
             unit_note = (
                 "\n*บริการคิดต่อหน่วย: กรอกจำนวนในขั้นถัดไป (ราคานี้คิด 1 หน่วย)*"
@@ -626,6 +627,14 @@ class OpenBillWizard(discord.ui.View):
         # บริการคิดต่อหน่วยเก็บเป็น key ซ้ำตามจำนวน (เช่น Drink Friend 3 shot = key 3 ตัว)
         service_keys = [key for key in self.service_keys for _ in range(quantities.get(key, 1))]
 
+        # Free Date ของ VIP: ต้องเป็น VIP และใช้ได้วันละครั้ง
+        vip_problem = await vip_only_problem(
+            self.cfg, self.cog.db, service_keys, self.customer_id, dt.datetime.now(self.cfg.tz)
+        )
+        if vip_problem:
+            await interaction.response.send_message(f"💎 {vip_problem}", ephemeral=True)
+            return
+
         if self.voucher:
             # คิดราคาแบบเดียวกับตอนสร้างบิลจริง (ระดับ VIP + ส่วนแบ่งพนักงาน) จะได้ไม่ผ่านตรงนี้แล้วไปตกตอนสร้างบิล
             now_local = dt.datetime.now(self.cfg.tz)
@@ -633,6 +642,7 @@ class OpenBillWizard(discord.ui.View):
             quote = await quote_services(
                 self.cfg, self.cog.db, service_keys, customer_id=self.customer_id, tier=tier,
                 staff_count=len(self.staff_ids), customer_count=len(self.customers), now_local=now_local,
+                customer_ids=self.customer_ids,
             )
             staff_share, _ = split_revenue(self.cfg, self.staff_ids, quote.total_price, quote.amounts)
             item = coins.reward(self.cfg, self.voucher["reward_key"])
@@ -955,6 +965,7 @@ class ReceptionCog(commands.Cog):
             staff_count=len(staff_ids),
             customer_count=1 + len(co_customers or []),
             now_local=now_local,
+            customer_ids=[customer_id, *(co_customers or [])],
         )
         staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
 

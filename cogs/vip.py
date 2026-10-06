@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import json
 import re
 
 import discord
@@ -13,7 +14,15 @@ from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WA
 from core.pricing import apply_discount
 from core.utils import fmt_datetime, from_iso, is_admin, money, now_utc, send_dm, to_iso
 from core.vip_logic import (
+    DEFAULT_VIP_BENEFITS,
+    DEFAULT_VIP_DATE_SERVICE,
+    DEFAULT_VIP_PACKAGES,
+    DEFAULT_VIP_TIERS,
+    VIP_DATE_KEY,
     active_tier,
+    perks_lines,
+    shop_day_start,
+    vip_benefit,
     compute_new_expiry,
     cycle_month_key,
     free_upgrade_expiry,
@@ -24,7 +33,32 @@ log = logging.getLogger("olp.vip")
 
 
 def _unit_label(pkg: dict) -> str:
-    return "1 เดือน" if pkg["unit"] == "month" else "1 ปี"
+    if pkg["unit"] == "month":
+        return f"{int(pkg.get('months', 1))} เดือน"
+    return "1 ปี"
+
+
+def ensure_vip_defaults(cfg) -> bool:
+    """เติมค่า Pandora VIP (ระดับ/แพ็กเกจ/สิทธิ์/บริการ Free Date) ลง config ถ้ายังไม่มี — คืน True ถ้ามีการเติม"""
+    changed = False
+    for key, default in (
+        ("vip_tiers", DEFAULT_VIP_TIERS),
+        ("vip_packages", DEFAULT_VIP_PACKAGES),
+        ("vip_benefits", DEFAULT_VIP_BENEFITS),
+    ):
+        if not cfg.data.get(key):
+            cfg.data[key] = json.loads(json.dumps(default))
+            changed = True
+    if cfg.service(VIP_DATE_KEY) is None:
+        cfg.data.setdefault("services", []).append(dict(DEFAULT_VIP_DATE_SERVICE))
+        changed = True
+    if changed:
+        cfg.save()
+    return changed
+
+
+def perks_text(cfg) -> str:
+    return "\n".join(f"• {p}" for p in perks_lines(cfg))
 
 
 class DiscountModal(discord.ui.Modal, title="ยืนยันการสั่งซื้อ"):
@@ -80,13 +114,16 @@ class VipShopView(discord.ui.View):
 
     def embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="💎 ซื้อ / ต่ออายุ VIP",
+            title="💎 สมัคร / ต่ออายุ VIP",
             description=(
                 "เลือกแพ็กเกจ แล้วกดปุ่ม **ยืนยัน & ใส่โค้ดส่วนลด**\n"
                 "*ต่ออายุก่อนหมดอายุจะสะสมต่อจากวันหมดอายุเดิม ถ้าเปลี่ยนระดับ (อัปเกรด) จะเริ่มนับใหม่*"
             ),
             color=COLOR_GOLD,
         )
+        perks = perks_text(self.cfg)
+        if perks:
+            embed.add_field(name="สิทธิ์สมาชิก VIP", value=perks[:1024], inline=False)
         if self.package_key:
             pkg = self.cfg.vip_package(self.package_key)
             embed.add_field(
@@ -208,11 +245,25 @@ class VipCog(commands.Cog):
         self.db = bot.db
 
     # --------------------------------------------------------------- ร้าน
+    async def cog_load(self) -> None:
+        if self.cfg.vip_enabled:
+            ensure_vip_defaults(self.cfg)
+
+    async def _vip_off(self, interaction: discord.Interaction) -> bool:
+        if self.cfg.vip_enabled:
+            return False
+        await interaction.response.send_message("ระบบ VIP ปิดใช้งานชั่วคราวค่ะ", ephemeral=True)
+        return True
+
     async def open_vip_shop(self, interaction: discord.Interaction) -> None:
+        if await self._vip_off(interaction):
+            return
         view = VipShopView(self, interaction.user.id)
         await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
 
     async def check_vip(self, interaction: discord.Interaction) -> None:
+        if await self._vip_off(interaction):
+            return
         now_local = dt.datetime.now(self.cfg.tz)
         tier = await active_tier(self.db, interaction.user.id, now_local)
 
@@ -245,6 +296,23 @@ class VipCog(commands.Cog):
                 ),
                 inline=False,
             )
+
+        if self.cfg.service(VIP_DATE_KEY) and int(vip_benefit(self.cfg, "free_date_per_day")) > 0:
+            limit = int(vip_benefit(self.cfg, "free_date_per_day"))
+            rows = await self.db.fetchall(
+                "SELECT services FROM jobs WHERE customer_id = ? AND status != 'CANCELLED' AND created_at >= ?",
+                (interaction.user.id, to_iso(shop_day_start(self.cfg, now_local))),
+            )
+            used = sum(json.loads(r["services"] or "[]").count(VIP_DATE_KEY) for r in rows)
+            embed.add_field(
+                name="💎 Free Date วันนี้",
+                value=f"ใช้ไป {min(used, limit)}/{limit} ครั้ง — แจ้งแอดมินตอนจองได้เลยค่ะ" if used < limit
+                else f"ใช้ครบ {limit}/{limit} ครั้งแล้ว (รีเซ็ตวันทำการถัดไป)",
+                inline=False,
+            )
+        perks = perks_text(self.cfg)
+        if perks:
+            embed.add_field(name="สิทธิ์ของคุณ", value=perks[:1024], inline=False)
 
         quota_lines = await self._quota_status_lines(interaction.user.id, tier, now_local)
         if quota_lines:

@@ -86,8 +86,8 @@ class PandoraBot(commands.Bot):
         await self.sheets.start()
 
         extensions = list(EXTENSIONS)
-        if self.cfg.vip_enabled:  # ร้าน Pandora ไม่มีระบบ VIP — เปิดได้ด้วย features.vip = true
-            extensions.insert(3, "cogs.vip")
+        # โหลด VIP เสมอ — เปิด/ปิดได้ที่ ⚙️ ตั้งค่าร้าน → VIP โดยไม่ต้องรีสตาร์ต (ปุ่มตอบว่าปิดใช้งานเองตอนปิด)
+        extensions.insert(3, "cogs.vip")
         for ext in extensions:
             await self.load_extension(ext)
             log.info("โหลด extension: %s", ext)
