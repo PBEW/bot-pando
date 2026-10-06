@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import time
 
@@ -110,6 +111,11 @@ class BackButton(discord.ui.Button):
         await interaction.response.edit_message(embed=home.embed(interaction.client.cfg), view=home)
 
 
+def _setup_status(cfg) -> str:
+    missing = sum(1 for _, _, _, p, _, _ in BOT_SLOTS if not _slot_ids(cfg, p) and p != "channels.log")
+    return "✅ ครบ" if not missing else f"⚠️ ขาด {missing}"
+
+
 # ===================================================================== หน้าแรก
 class SettingsHome(AdminView):
     def __init__(self) -> None:
@@ -134,6 +140,12 @@ class SettingsHome(AdminView):
                     ("💳 การชำระเงิน", "พร้อมเพย์ · ชื่อบัญชี · รูป QR"),
                     ("🔧 อื่นๆ", "โดเนท · Top Donate · บิลค้าง · เวลาตัดยอด"),
                 ]),
+                ("🧭 ระบบบอท", [
+                    (
+                        f"🧭 ห้อง · Role · เวลา · ตัดรอบ · {_setup_status(cfg)}",
+                        "ห้องแอดมิน/รีวิว/ประกาศ · Role ต่างๆ · เวลาแจ้งเตือน · บิลค้าง · Google Sheets",
+                    ),
+                ]),
                 ("👥 สมาชิก & สิทธิ์", [
                     (f"💎 VIP · {'🟢 เปิด' if cfg.vip_enabled else '⚪ ปิด'}", "ราคา/อายุแพ็กเกจ · Role · สิทธิ์"),
                     (f"🔑 Role รีเซปชั่น · {len(cfg.reception_role_ids)} Role", "ใช้แผง /panel reception ได้โดยไม่ต้องเป็นแอดมิน"),
@@ -152,6 +164,7 @@ class SettingsHome(AdminView):
             discord.SelectOption(label="อื่นๆ", value="other", emoji="🔧"),
             discord.SelectOption(label="VIP", value="vip", emoji="💎"),
             discord.SelectOption(label="Role รีเซปชั่น", value="reception", emoji="🔑"),
+            discord.SelectOption(label="ระบบบอท (ห้อง · Role · เวลา · ตัดรอบ · Sheets)", value="bot", emoji="🧭"),
         ],
     )
     async def pick(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
@@ -165,6 +178,13 @@ class SettingsHome(AdminView):
             await interaction.response.edit_message(embed=view.embed(), view=view)
         elif choice == "share":
             view = ShareView(cfg)
+            await interaction.response.edit_message(embed=view.embed(), view=view)
+        elif choice == "bot":
+            if not cfg.guild_id and interaction.guild_id:
+                # ยังไม่ได้ใส่ guild_id — ใช้เซิร์ฟเวอร์นี้เลย (คำสั่ง slash จะซิงก์เร็วขึ้นหลังรีสตาร์ตครั้งถัดไป)
+                cfg.data["guild_id"] = interaction.guild_id
+                _save(interaction)
+            view = BotSetupView(cfg, sheets_ready=interaction.client.sheets.ready)
             await interaction.response.edit_message(embed=view.embed(), view=view)
         elif choice == "reception":
             await interaction.response.send_modal(ReceptionRoleModal(cfg))
@@ -1100,6 +1120,420 @@ class VipModal(discord.ui.Modal, title="แก้แพ็กเกจ VIP"):
         await log_change(interaction.client, interaction.user, f"แก้ VIP: {summary}")
         view = VipSettingsView(cfg)
         await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+# ================================================================ ระบบบอท
+# ช่อง/Role ที่บอทใช้ (key, ชนิด, ชื่อ, path ใน config, เลือกได้หลายอัน, คำอธิบาย)
+BOT_SLOTS = [
+    ("ch_admin", "channel", "🛠️ ห้องแอดมิน", "channels.admin", False, "บิล · สลิป · สรุปยอด · แจ้งเตือนแอดมิน"),
+    ("ch_review", "channel", "💖 ห้องรีวิว", "channels.review", False, "รีวิวที่อนุมัติแล้ว"),
+    ("ch_announce", "channel", "📣 ห้องประกาศ", "channels.announce", False, "Top Donate · โดเนท · ขอบคุณ · อีเวนต์"),
+    ("ch_log", "channel", "📝 ห้อง Log", "channels.log", False, "บันทึกการแก้ตั้งค่า (ไม่บังคับ)"),
+    ("role_admin", "role", "🛠️ Role แอดมิน", "roles.admin", False, "ใช้เมนูแอดมิน/ตั้งค่า/ยืนยันสลิป"),
+    ("role_reception", "role", "🔑 Role รีเซปชั่น", "roles.reception", True, "ใช้แผง /panel reception"),
+    ("role_staff", "role", "💃 Role พนักงาน", "roles.staff", True, "รับงาน · เข้างาน · เมนูพนักงาน"),
+    ("role_on_duty", "role", "🟢 Role On Duty", "roles.on_duty", False, "บอทให้ตอนเข้างาน ถอดตอนตัดยอด"),
+    ("role_adult", "role", "🔞 Role ยืนยันอายุ 18+", "roles.adult_verified", True, "ลูกค้าต้องมีถึงเปิดบิล 18+ ได้"),
+]
+
+BOT_FEATURES = [
+    ("donate.enabled", "💜 ระบบโดเนท", True),
+    ("donate.announce", "📣 ประกาศโดเนทในห้องประกาศ", True),
+    ("top_donate.enabled", "🏆 Top Donate รายเดือน", True),
+]
+
+WEEKDAYS = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
+
+
+def _slot_ids(cfg, path: str) -> list[int]:
+    raw = cfg.get(path, 0) or 0
+    values = raw if isinstance(raw, list) else [raw]
+    return [int(v) for v in values if int(v or 0)]
+
+
+def _slot_text(kind: str, ids: list[int]) -> str:
+    if not ids:
+        return "⚠️ ยังไม่ตั้ง"
+    return " ".join(f"<#{i}>" if kind == "channel" else f"<@&{i}>" for i in ids)
+
+
+def _set_path(cfg, path: str, value) -> None:
+    section, key = path.split(".")
+    cfg.data.setdefault(section, {})[key] = value
+
+
+class BotSetupView(AdminView):
+    """ตั้งค่าที่บอทต้องใช้: ห้อง / Role / เวลาแจ้งเตือน / ตัดรอบ / ร้าน & Sheets / เปิด-ปิดฟีเจอร์"""
+
+    def __init__(self, cfg, slot: str | None = None, *, sheets_ready: bool = False) -> None:
+        super().__init__(timeout=600)
+        self.cfg = cfg
+        self.slot = slot
+        self.sheets_ready = sheets_ready
+
+        self.slot_select = discord.ui.Select(
+            placeholder="1) เลือกห้อง / Role ที่จะตั้ง",
+            row=0,
+            options=[
+                discord.SelectOption(
+                    label=name.split(" ", 1)[1][:100],
+                    value=key,
+                    emoji=name.split(" ", 1)[0],
+                    description=(("✅ ตั้งแล้ว · " if _slot_ids(cfg, path) else "⚠️ ยังไม่ตั้ง · ") + detail)[:100],
+                    default=key == slot,
+                )
+                for key, _, name, path, _, detail in BOT_SLOTS
+            ],
+        )
+        self.slot_select.callback = self._on_slot
+        self.add_item(self.slot_select)
+
+        spec = self._spec()
+        if spec is not None:
+            _, kind, name, _, multi, _ = spec
+            cls = discord.ui.ChannelSelect if kind == "channel" else discord.ui.RoleSelect
+            kwargs = {"channel_types": [discord.ChannelType.text]} if kind == "channel" else {}
+            self.value_select = cls(
+                placeholder=f"2) เลือก{name.split(' ', 1)[1]}" + (" (เลือกได้หลายอัน)" if multi else ""),
+                row=1,
+                min_values=1,
+                max_values=10 if multi else 1,
+                **kwargs,
+            )
+            self.value_select.callback = self._on_value
+            self.add_item(self.value_select)
+        else:
+            self.clear_slot.disabled = True
+        self.add_item(BackButton(row=4))
+
+    def _spec(self):
+        return next((s for s in BOT_SLOTS if s[0] == self.slot), None)
+
+    def embed(self) -> discord.Embed:
+        cfg = self.cfg
+        channels = rows_text(
+            [(n.split(" ", 1)[0], n.split(" ", 1)[1], _slot_text(k, _slot_ids(cfg, p))) for _, k, n, p, _, _ in BOT_SLOTS if k == "channel"]
+        )
+        roles = rows_text(
+            [(n.split(" ", 1)[0], n.split(" ", 1)[1], _slot_text(k, _slot_ids(cfg, p))) for _, k, n, p, _, _ in BOT_SLOTS if k == "role"]
+        )
+        missing = sum(1 for _, _, _, p, _, _ in BOT_SLOTS if not _slot_ids(cfg, p) and p != "channels.log")
+        embed = discord.Embed(
+            title="🧭 ตั้งค่าระบบบอท",
+            description=(
+                "1️⃣ เลือกห้อง/Role จากเมนูแรก　2️⃣ เลือกค่าจากเมนูที่สอง — บันทึกทันที\n"
+                + (f"⚠️ ยังไม่ได้ตั้ง **{missing}** รายการ" if missing else "✅ ตั้งห้องและ Role ครบแล้ว")
+            ),
+            color=COLOR_OK if not missing else COLOR_MAIN,
+        )
+        embed.add_field(name="📍 ห้อง", value=channels[:1024], inline=False)
+        embed.add_field(name="🏷️ Role", value=roles[:1024], inline=False)
+        embed.add_field(
+            name="⏰ เวลา & แจ้งเตือน",
+            value=rows_text([
+                ("🔔", "เตือนก่อนเริ่มงาน", f"{cfg.before_start_minutes} นาที"),
+                ("⌛", "เตือนก่อนหมดเวลา", f"{cfg.before_end_minutes} นาที"),
+                ("🎫", "ปิดตั๋วเงียบ", f"{cfg.ticket_timeout_minutes} นาที"),
+                ("💖", "เขียนรีวิวได้ภายใน", f"{cfg.review_window_hours} ชม."),
+            ]),
+            inline=True,
+        )
+        embed.add_field(
+            name="🧾 บิลค้าง",
+            value=rows_text([
+                ("💃", "รอพนักงานรับ", f"{cfg.get('bill_timeout.staff_accept_minutes', 15)} นาที"),
+                ("💳", "เตือนจ่ายเงิน", f"{cfg.get('bill_timeout.payment_remind_minutes', 15)} นาที"),
+                ("❌", "ยกเลิกไม่จ่าย", f"{cfg.get('bill_timeout.payment_cancel_minutes', 45)} นาที"),
+                ("🔎", "สลิปรอตรวจ", f"{cfg.get('bill_timeout.slip_review_minutes', 10)} นาที"),
+            ]),
+            inline=True,
+        )
+        sheets = self.cfg.get("google_sheets.enabled", False)
+        embed.add_field(
+            name="🏪 ร้าน & ระบบ",
+            value=rows_text([
+                ("🏷️", "ชื่อร้าน", cfg.shop_name),
+                (
+                    "✂️",
+                    "ตัดรอบ",
+                    f"ทุกวัน{WEEKDAYS[cfg.cutoff_weekday % 7]} {cfg.cutoff_hour:02d}:{cfg.cutoff_minute:02d}",
+                ),
+                ("📊", "Google Sheets", ("🟢 เปิด" if sheets else "⚪ ปิด") + (" · เชื่อมต่อแล้ว" if self.sheets_ready else "")),
+                *[(n.split(" ", 1)[0], n.split(" ", 1)[1], "🟢 เปิด" if cfg.get(p, d) else "⚪ ปิด") for p, n, d in BOT_FEATURES],
+            ]),
+            inline=False,
+        )
+        embed.set_footer(text="Guild ID / Token / ไฟล์ credentials ยังแก้ใน config.json และ .env (ต้องรีสตาร์ต)")
+        return embed
+
+    async def _rerender(self, interaction: discord.Interaction, slot: str | None = None) -> None:
+        view = BotSetupView(self.cfg, slot, sheets_ready=interaction.client.sheets.ready)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+    async def _on_slot(self, interaction: discord.Interaction) -> None:
+        await self._rerender(interaction, self.slot_select.values[0])
+
+    async def _on_value(self, interaction: discord.Interaction) -> None:
+        key, kind, name, path, multi, _ = self._spec()
+        ids = [int(v.id) for v in self.value_select.values]
+        if path == "roles.admin":
+            member = interaction.user
+            perms = getattr(member, "guild_permissions", None)
+            has_role = any(r.id == ids[0] for r in getattr(member, "roles", []))
+            if not has_role and not (perms and (perms.administrator or perms.manage_guild)):
+                await interaction.response.send_message(
+                    "⚠️ ตั้ง Role แอดมินเป็น Role ที่คุณไม่มีไม่ได้ (จะล็อกตัวเองออกจากเมนูแอดมิน) "
+                    "— ใส่ Role นี้ให้ตัวเองก่อน หรือให้เจ้าของเซิร์ฟเวอร์ตั้งค่ะ",
+                    ephemeral=True,
+                )
+                return
+        _set_path(self.cfg, path, ids if multi else ids[0])
+        _save(interaction)
+        await log_change(interaction.client, interaction.user, f"ตั้ง{name}: {_slot_text(kind, ids)}")
+        await self._rerender(interaction, key)
+
+    @discord.ui.button(label="ล้างค่าที่เลือก", emoji="🗑️", style=discord.ButtonStyle.danger, row=2)
+    async def clear_slot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        spec = self._spec()
+        if spec is None:
+            await interaction.response.defer()
+            return
+        key, _, name, path, multi, _ = spec
+        if path == "roles.admin":
+            await interaction.response.send_message("ล้าง Role แอดมินไม่ได้ค่ะ (ให้เลือก Role ใหม่แทน)", ephemeral=True)
+            return
+        _set_path(self.cfg, path, [] if multi else 0)
+        _save(interaction)
+        await log_change(interaction.client, interaction.user, f"ล้างค่า{name}")
+        await self._rerender(interaction, key)
+
+    @discord.ui.button(label="เวลา & แจ้งเตือน", emoji="⏰", style=discord.ButtonStyle.primary, row=3)
+    async def times(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(NumberFieldsModal("⏰ เวลา & แจ้งเตือน", TIME_FIELDS, self.cfg))
+
+    @discord.ui.button(label="บิลค้าง", emoji="🧾", style=discord.ButtonStyle.primary, row=3)
+    async def bills(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(NumberFieldsModal("🧾 บิลค้าง", BILL_FIELDS, self.cfg))
+
+    @discord.ui.button(label="ตัดรอบ", emoji="✂️", style=discord.ButtonStyle.primary, row=3)
+    async def cutoff(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(CutoffModal(self.cfg))
+
+    @discord.ui.button(label="ร้าน & Sheets", emoji="🏪", style=discord.ButtonStyle.secondary, row=3)
+    async def shop(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(ShopModal(self.cfg))
+
+    @discord.ui.button(label="เปิด/ปิดฟีเจอร์", emoji="🔌", style=discord.ButtonStyle.secondary, row=2)
+    async def features(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        view = FeatureView(self.cfg)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+class FeatureView(AdminView):
+    def __init__(self, cfg) -> None:
+        super().__init__(timeout=600)
+        self.cfg = cfg
+        select = discord.ui.Select(
+            placeholder="ติ๊กฟีเจอร์ที่ต้องการเปิด (ที่ไม่ติ๊ก = ปิด)",
+            min_values=0,
+            max_values=len(BOT_FEATURES),
+            row=0,
+            options=[
+                discord.SelectOption(label=n.split(" ", 1)[1], value=p, emoji=n.split(" ", 1)[0], default=bool(cfg.get(p, d)))
+                for p, n, d in BOT_FEATURES
+            ],
+        )
+        select.callback = self._on_pick
+        self.select = select
+        self.add_item(select)
+        back = discord.ui.Button(label="กลับ", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+        back.callback = self._back
+        self.add_item(back)
+
+    def embed(self) -> discord.Embed:
+        return discord.Embed(
+            title="🔌 เปิด/ปิดฟีเจอร์",
+            description=rows_text(
+                [(n.split(" ", 1)[0], n.split(" ", 1)[1], "🟢 เปิด" if self.cfg.get(p, d) else "⚪ ปิด") for p, n, d in BOT_FEATURES]
+            )
+            + "\n\n> VIP และเหรียญ Pandora เปิด/ปิดได้ที่เมนูของตัวเอง",
+            color=COLOR_MAIN,
+        )
+
+    async def _on_pick(self, interaction: discord.Interaction) -> None:
+        on = set(self.select.values)
+        changed = []
+        for path, name, default in BOT_FEATURES:
+            value = path in on
+            if bool(self.cfg.get(path, default)) != value:
+                _set_path(self.cfg, path, value)
+                changed.append(f"{name}: {'เปิด' if value else 'ปิด'}")
+        if changed:
+            _save(interaction)
+            await log_change(interaction.client, interaction.user, "เปิด/ปิดฟีเจอร์\n" + "\n".join(f"• {c}" for c in changed))
+        view = FeatureView(self.cfg)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+    async def _back(self, interaction: discord.Interaction) -> None:
+        view = BotSetupView(self.cfg, sheets_ready=interaction.client.sheets.ready)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+TIME_FIELDS = [
+    ("notify.before_start_minutes", "เตือนก่อนเริ่มงาน (นาที)", 5, 0, 120),
+    ("notify.before_end_minutes", "เตือนก่อนหมดเวลา (นาที)", 5, 0, 120),
+    ("ticket.timeout_minutes", "ปิดตั๋วสอบถามเมื่อเงียบ (นาที)", 10, 1, 1440),
+    ("review.window_hours", "เขียนรีวิวได้ภายใน (ชั่วโมง)", 24, 1, 720),
+    ("donate.expire_minutes", "ยกเลิกโดเนทที่ไม่จ่าย (นาที)", 60, 5, 1440),
+]
+BILL_FIELDS = [
+    ("bill_timeout.staff_accept_minutes", "แจ้งแอดมินเมื่อพนักงานไม่รับ (นาที)", 15, 1, 1440),
+    ("bill_timeout.payment_remind_minutes", "DM เตือนลูกค้าจ่ายเงิน (นาที)", 15, 1, 1440),
+    ("bill_timeout.payment_cancel_minutes", "ยกเลิกบิลที่ไม่จ่าย (นาที)", 45, 5, 1440),
+    ("bill_timeout.slip_review_minutes", "แจ้งแอดมินเมื่อสลิปค้างตรวจ (นาที)", 10, 1, 1440),
+]
+
+
+class NumberFieldsModal(discord.ui.Modal):
+    """ฟอร์มตัวเลขทั่วไป (สูงสุด 5 ช่อง) — fields = [(path, label, ค่าเริ่มต้น, ต่ำสุด, สูงสุด)]"""
+
+    def __init__(self, title: str, fields: list[tuple], cfg) -> None:
+        super().__init__(title=title[:45])
+        self.fields = fields
+        self.inputs: list[tuple[tuple, discord.ui.TextInput]] = []
+        for spec in fields[:5]:
+            path, label, default, _, _ = spec
+            item = discord.ui.TextInput(label=label[:45], default=f"{float(cfg.get(path, default)):g}", max_length=9)
+            self.inputs.append((spec, item))
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cfg = interaction.client.cfg
+        try:
+            values = {spec[0]: int(_num(f.value, lo=spec[3], hi=spec[4], name=spec[1])) for spec, f in self.inputs}
+        except ValueError as exc:
+            await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
+            return
+        labels = {spec[0]: spec[1] for spec, _ in self.inputs}
+        changed = []
+        for path, value in values.items():
+            if cfg.get(path) != value:
+                changed.append(f"{labels[path]}: {cfg.get(path)} → {value}")
+                _set_path(cfg, path, value)
+        if changed:
+            _save(interaction)
+            await log_change(interaction.client, interaction.user, f"แก้{self.title}\n" + "\n".join(f"• {c}" for c in changed))
+        view = BotSetupView(cfg, sheets_ready=interaction.client.sheets.ready)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+class CutoffModal(discord.ui.Modal, title="✂️ วันเวลาตัดรอบบัญชี"):
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        self.weekday = discord.ui.TextInput(
+            label="วัน (1=จันทร์ … 6=เสาร์, 7=อาทิตย์)", default=str(cfg.cutoff_weekday % 7 + 1), max_length=1
+        )
+        self.time = discord.ui.TextInput(
+            label="เวลา (HH:MM)", default=f"{cfg.cutoff_hour:02d}:{cfg.cutoff_minute:02d}", max_length=5
+        )
+        self.add_item(self.weekday)
+        self.add_item(self.time)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cfg = interaction.client.cfg
+        try:
+            weekday = int(_num(self.weekday.value, lo=1, hi=7, name="วัน")) - 1
+            hour_text, _, minute_text = self.time.value.strip().replace(".", ":").partition(":")
+            hour = int(_num(hour_text, lo=0, hi=23, name="ชั่วโมง"))
+            minute = int(_num(minute_text or "0", lo=0, hi=59, name="นาที"))
+        except ValueError as exc:
+            await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
+            return
+        cfg.data["cutoff"] = {**(cfg.get("cutoff") or {}), "weekday": weekday, "hour": hour, "minute": minute}
+        _save(interaction)
+        # นับรอบปัจจุบันตามเวลาใหม่ทันที — กันบอทส่งสรุปรอบทันทีเพราะวันเริ่มรอบเปลี่ยน
+        from core.cycle import cycle_start_local
+
+        now_local = dt.datetime.now(cfg.tz)
+        await interaction.client.db.set_meta("last_cutoff", cycle_start_local(now_local, cfg).date().isoformat())
+        text = f"ทุกวัน{WEEKDAYS[weekday]} {hour:02d}:{minute:02d}"
+        await log_change(interaction.client, interaction.user, f"ตั้งเวลาตัดรอบ: {text}")
+        view = BotSetupView(cfg, sheets_ready=interaction.client.sheets.ready)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+class ShopModal(discord.ui.Modal, title="🏪 ร้าน & Google Sheets"):
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        self.name = discord.ui.TextInput(label="ชื่อร้าน", default=cfg.shop_name, max_length=80)
+        self.sheets_on = discord.ui.TextInput(
+            label="เปิดใช้ Google Sheets (ใช่ / ไม่)",
+            default="ใช่" if cfg.get("google_sheets.enabled", False) else "ไม่",
+            max_length=5,
+        )
+        self.sheet_id = discord.ui.TextInput(
+            label="Spreadsheet ID (จากลิงก์ /d/<ID>/edit)",
+            default=str(cfg.get("google_sheets.spreadsheet_id", "") or ""),
+            required=False,
+            max_length=120,
+        )
+        self.color = discord.ui.TextInput(
+            label="สีกรอบรีวิว (#RRGGBB)", default=str(cfg.get("review.embed_color", "#B026FF")), max_length=7
+        )
+        for item in (self.name, self.sheets_on, self.sheet_id, self.color):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cfg = interaction.client.cfg
+        on_text = self.sheets_on.value.strip().lower()
+        if on_text not in ("ใช่", "ไม่", "yes", "no", "on", "off", "1", "0"):
+            await interaction.response.send_message("⚠️ ช่องเปิดใช้ Google Sheets ให้ตอบ **ใช่** หรือ **ไม่** ค่ะ", ephemeral=True)
+            return
+        color = self.color.value.strip()
+        if not color.startswith("#"):
+            color = "#" + color
+        try:
+            int(color[1:], 16)
+            assert len(color) == 7
+        except (ValueError, AssertionError):
+            await interaction.response.send_message("⚠️ สีต้องเป็นรูปแบบ #RRGGBB เช่น #B026FF ค่ะ", ephemeral=True)
+            return
+        sheet_id = self.sheet_id.value.strip()
+        if "/d/" in sheet_id:  # วางทั้งลิงก์มาก็ได้
+            sheet_id = sheet_id.split("/d/", 1)[1].split("/", 1)[0]
+        enable = on_text in ("ใช่", "yes", "on", "1")
+        if enable and not sheet_id:
+            await interaction.response.send_message("⚠️ เปิดใช้ Google Sheets ต้องใส่ Spreadsheet ID ด้วยค่ะ", ephemeral=True)
+            return
+
+        old_sheets = (cfg.get("google_sheets.enabled", False), cfg.get("google_sheets.spreadsheet_id", ""))
+        cfg.data["shop_name"] = self.name.value.strip() or cfg.shop_name
+        _set_path(cfg, "review.embed_color", color.upper())
+        _set_path(cfg, "google_sheets.enabled", enable)
+        _set_path(cfg, "google_sheets.spreadsheet_id", sheet_id)
+        _save(interaction)
+        await interaction.response.defer()
+
+        note = ""
+        if (enable, sheet_id) != old_sheets:
+            sheets = interaction.client.sheets
+            if enable:
+                await sheets.start()  # เชื่อมต่อใหม่ทันที ไม่ต้องรีสตาร์ต
+                note = "\n📊 เชื่อมต่อ Google Sheets สำเร็จ" if sheets.ready else (
+                    "\n⚠️ เชื่อมต่อ Google Sheets ไม่สำเร็จ — ตรวจไฟล์ credentials และแชร์ชีตให้ service account"
+                )
+            else:
+                sheets._spreadsheet = None
+                note = "\n📊 ปิด Google Sheets แล้ว"
+        await log_change(
+            interaction.client,
+            interaction.user,
+            f"แก้ร้าน & Sheets: ชื่อ {cfg.shop_name} · Sheets {'เปิด' if enable else 'ปิด'} · สีรีวิว {color.upper()}",
+        )
+        view = BotSetupView(cfg, sheets_ready=interaction.client.sheets.ready)
+        await interaction.edit_original_response(embed=view.embed(), view=view)
+        if note:
+            await interaction.followup.send(note.strip(), ephemeral=True)
 
 
 # ==================================================================== ยืนยัน
