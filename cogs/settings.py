@@ -1198,19 +1198,22 @@ class BotSetupView(AdminView):
         spec = self._spec()
         if spec is not None:
             _, kind, name, _, multi, _ = spec
-            cls = discord.ui.ChannelSelect if kind == "channel" else discord.ui.RoleSelect
-            kwargs = {"channel_types": [discord.ChannelType.text]} if kind == "channel" else {}
-            self.value_select = cls(
-                placeholder=f"2) เลือก{name.split(' ', 1)[1]}" + (" (เลือกได้หลายอัน)" if multi else ""),
-                row=1,
-                min_values=1,
-                max_values=10 if multi else 1,
-                **kwargs,
-            )
-            self.value_select.callback = self._on_value
-            self.add_item(self.value_select)
+            if kind == "channel":
+                # ห้อง: ใส่ Channel ID เอง (กดปุ่ม ✏️) — เมนูเลือกห้องของ Discord หาห้องยากเมื่อห้องเยอะ
+                self.id_button.label = "2) ใส่ Channel ID"
+            else:
+                self.value_select = discord.ui.RoleSelect(
+                    placeholder=f"2) เลือก{name.split(' ', 1)[1]}" + (" (เลือกได้หลายอัน)" if multi else ""),
+                    row=1,
+                    min_values=1,
+                    max_values=10 if multi else 1,
+                )
+                self.value_select.callback = self._on_value
+                self.add_item(self.value_select)
+                self.id_button.label = "หรือใส่ Role ID"
         else:
             self.clear_slot.disabled = True
+            self.id_button.disabled = True
         self.add_item(BackButton(row=4))
 
     def _spec(self):
@@ -1228,7 +1231,7 @@ class BotSetupView(AdminView):
         embed = discord.Embed(
             title="🧭 ตั้งค่าระบบบอท",
             description=(
-                "1️⃣ เลือกห้อง/Role จากเมนูแรก　2️⃣ เลือกค่าจากเมนูที่สอง — บันทึกทันที\n"
+                "1️⃣ เลือกห้อง/Role จากเมนูแรก　2️⃣ กด ✏️ ใส่ Channel ID (Role เลือกจากเมนูหรือใส่ ID ก็ได้) — บันทึกทันที\n"
                 + (f"⚠️ ยังไม่ได้ตั้ง **{missing}** รายการ" if missing else "✅ ตั้งห้องและ Role ครบแล้ว")
             ),
             color=COLOR_OK if not missing else COLOR_MAIN,
@@ -1281,8 +1284,11 @@ class BotSetupView(AdminView):
         await self._rerender(interaction, self.slot_select.values[0])
 
     async def _on_value(self, interaction: discord.Interaction) -> None:
+        await self.apply_ids(interaction, [int(v.id) for v in self.value_select.values])
+
+    async def apply_ids(self, interaction: discord.Interaction, ids: list[int]) -> None:
+        """บันทึกห้อง/Role ของช่องที่เลือก (ใช้ทั้งเมนูเลือกและฟอร์มใส่ ID)"""
         key, kind, name, path, multi, _ = self._spec()
-        ids = [int(v.id) for v in self.value_select.values]
         if path == "roles.admin":
             member = interaction.user
             perms = getattr(member, "guild_permissions", None)
@@ -1298,6 +1304,13 @@ class BotSetupView(AdminView):
         _save(interaction)
         await log_change(interaction.client, interaction.user, f"ตั้ง{name}: {_slot_text(kind, ids)}")
         await self._rerender(interaction, key)
+
+    @discord.ui.button(label="ใส่ ID", emoji="✏️", style=discord.ButtonStyle.primary, row=2)
+    async def id_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if self._spec() is None:
+            await interaction.response.send_message("เลือกห้อง / Role จากเมนูแรกก่อนค่ะ", ephemeral=True)
+            return
+        await interaction.response.send_modal(SlotIdModal(self))
 
     @discord.ui.button(label="ล้างค่าที่เลือก", emoji="🗑️", style=discord.ButtonStyle.danger, row=2)
     async def clear_slot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -1334,6 +1347,50 @@ class BotSetupView(AdminView):
     async def features(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         view = FeatureView(self.cfg)
         await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+class SlotIdModal(discord.ui.Modal):
+    """ใส่ Channel ID / Role ID เอง (คลิกขวาที่ห้อง/Role → Copy ID · ต้องเปิด Developer Mode)"""
+
+    def __init__(self, view: "BotSetupView") -> None:
+        _, kind, name, path, multi, _ = view._spec()
+        super().__init__(title=f"✏️ {name.split(' ', 1)[1]}"[:45])
+        self.view = view
+        self.kind = kind
+        current = ", ".join(str(i) for i in _slot_ids(view.cfg, path))
+        self.ids = discord.ui.TextInput(
+            label=("Channel ID" if kind == "channel" else "Role ID") + (" (หลายอันคั่นด้วย ,)" if multi else ""),
+            placeholder="คลิกขวาที่" + ("ห้อง" if kind == "channel" else " Role") + " → Copy ID เช่น 1234567890123456789",
+            default=current or None,
+            max_length=200,
+        )
+        self.add_item(self.ids)
+        self.multi = multi
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        parts = [p.strip().strip("<>#@&") for p in self.ids.value.replace(" ", ",").split(",") if p.strip()]
+        if not parts or any(not p.isdigit() for p in parts):
+            await interaction.response.send_message("⚠️ ID ต้องเป็นตัวเลขเท่านั้นค่ะ (เช่น 1234567890123456789)", ephemeral=True)
+            return
+        if not self.multi and len(parts) > 1:
+            await interaction.response.send_message("⚠️ ช่องนี้ใส่ได้ ID เดียวค่ะ", ephemeral=True)
+            return
+        ids = list(dict.fromkeys(int(p) for p in parts))
+        guild = interaction.guild
+        if self.kind == "channel":
+            bad = [i for i in ids if guild is None or not hasattr(guild.get_channel(i), "send")]
+            what = "ห้องข้อความ"
+        else:
+            bad = [i for i in ids if guild is None or guild.get_role(i) is None]
+            what = "Role"
+        if bad:
+            await interaction.response.send_message(
+                f"⚠️ ไม่พบ{what}นี้ในเซิร์ฟเวอร์: " + ", ".join(map(str, bad))
+                + ("\n(บอทต้องมองเห็นห้องนั้นด้วย)" if self.kind == "channel" else ""),
+                ephemeral=True,
+            )
+            return
+        await self.view.apply_ids(interaction, ids)
 
 
 class FeatureView(AdminView):
