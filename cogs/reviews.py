@@ -8,7 +8,7 @@ import re
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed, rows_text
 from core.utils import from_iso, is_admin, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.reviews")
@@ -147,15 +147,15 @@ class ReviewForm(discord.ui.View):
         embed = discord.Embed(
             title="✍️ แบบประเมินความพึงพอใจ",
             description=(
-                f"บิล `#{self.job['id']}` · {self.cog.cfg.service_names(self.job['services'])}\n"
-                "เลือกคะแนนทั้ง 2 ช่อง แล้วกดปุ่มเขียนข้อความรีวิวค่ะ"
+                f"🧾 บิล `#{self.job['id']}` · {self.cog.cfg.service_names(self.job['services'])}\n\n"
+                "1️⃣ เลือกคะแนนทั้ง 2 ช่อง　2️⃣ กด 📝 **เขียนข้อความรีวิว**"
             ),
             color=COLOR_INFO,
         )
         embed.add_field(
-            name="ความประทับใจ", value="⭐" * self.stars if self.stars else "*ยังไม่เลือก*"
+            name="⭐ ความประทับใจ", value="⭐" * self.stars if self.stars else "*ยังไม่เลือก*"
         )
-        embed.add_field(name="ความแซ่บ", value="🔥" * self.spice if self.spice else "*ยังไม่เลือก*")
+        embed.add_field(name="🔥 ความแซ่บ", value="🔥" * self.spice if self.spice else "*ยังไม่เลือก*")
         return embed
 
     @discord.ui.button(
@@ -267,12 +267,12 @@ class ReviewsCog(commands.Cog):
 
         embed = discord.Embed(
             title="📝 รีวิวใหม่รอตรวจสอบ",
-            description=(
-                f"รีวิว `R#{review_id}` · บิล `#{job['id']}`\n"
-                f"ลูกค้า: <@{job['customer_id']}>\n"
-                f"พนักงาน: <@{job['staff_id']}> ({staff_name})\n"
-                f"บริการ: {self.cfg.service_names(job['services'])}"
-            ),
+            description=rows_text([
+                ("📝", "รีวิว", f"`R#{review_id}` · บิล `#{job['id']}`"),
+                ("👤", "ลูกค้า", f"<@{job['customer_id']}>"),
+                ("💃", "พนักงาน", f"<@{job['staff_id']}> ({staff_name})"),
+                ("🛎️", "บริการ", self.cfg.service_names(job["services"])),
+            ]),
             color=COLOR_WARN,
         )
         embed.add_field(name="คะแนน", value="⭐" * stars, inline=True)
@@ -353,7 +353,7 @@ class ReviewsCog(commands.Cog):
             return
         embed = message.embeds[0] if message.embeds else discord.Embed()
         embed.color = color
-        embed.add_field(name="ผลการตรวจสอบ", value=text, inline=False)
+        embed.add_field(name="📋 ผลการตรวจสอบ", value=text, inline=False)
         await message.edit(embed=embed, view=None)
 
     # ------------------------------------------------------ Embed สาธารณะ
@@ -374,13 +374,13 @@ class ReviewsCog(commands.Cog):
         embed = discord.Embed(title="💖 รีวิวจากลูกค้า", color=self.cfg.review_color)
         if avatar_url:
             embed.set_thumbnail(url=avatar_url)
-        embed.add_field(name="คะแนน", value="⭐" * int(review["stars"]), inline=True)
-        embed.add_field(name="ความแซ่บ", value="🔥" * int(review["spice"]), inline=True)
+        embed.add_field(name="⭐ คะแนน", value="⭐" * int(review["stars"]), inline=True)
+        embed.add_field(name="🔥 ความแซ่บ", value="🔥" * int(review["spice"]), inline=True)
         embed.add_field(
-            name="ความประทับใจ", value=f"```\n{(review['content'] or '-')[:900]}\n```", inline=False
+            name="💬 ความประทับใจ", value=f"```\n{(review['content'] or '-')[:900]}\n```", inline=False
         )
-        embed.add_field(name="พนักงาน", value=staff_value, inline=True)
-        embed.add_field(name="บริการที่ใช้", value=review["services"] or "-", inline=True)
+        embed.add_field(name="💃 พนักงาน", value=staff_value, inline=True)
+        embed.add_field(name="🛎️ บริการที่ใช้", value=review["services"] or "-", inline=True)
 
         customer_name = "ลูกค้า"
         if guild is not None:

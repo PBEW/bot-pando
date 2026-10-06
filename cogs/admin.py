@@ -39,16 +39,22 @@ class AdminCog(commands.Cog):
             return channel.mention if channel else f"⚠️ ยังไม่ได้ตั้งค่า (`channels.{key}`)"
 
         embed = discord.Embed(title="🩺 สถานะระบบ Pandora", color=COLOR_INFO)
-        embed.add_field(name="Latency", value=f"{self.bot.latency * 1000:.0f} ms", inline=True)
-        embed.add_field(name="เวลาปัจจุบัน", value=fmt_datetime(now_local, self.cfg.tz), inline=True)
-        embed.add_field(name="งานที่ยังไม่จบ", value=str(len(active)), inline=True)
-        embed.add_field(name="Ticket ที่เปิดอยู่", value=str(len(tickets)), inline=True)
-        embed.add_field(name="ห้องแอดมิน", value=channel_line("admin"), inline=False)
-        embed.add_field(name="ห้องรีวิว", value=channel_line("review"), inline=False)
-        embed.add_field(name="ห้องประกาศ Top Donate", value=channel_line("announce"), inline=False)
+        embed.add_field(name="📶 Latency", value=f"{self.bot.latency * 1000:.0f} ms", inline=True)
+        embed.add_field(name="🕒 เวลาปัจจุบัน", value=fmt_datetime(now_local, self.cfg.tz), inline=True)
+        embed.add_field(name="📋 งานที่ยังไม่จบ", value=str(len(active)), inline=True)
+        embed.add_field(name="🎫 Ticket ที่เปิดอยู่", value=str(len(tickets)), inline=True)
+        embed.add_field(
+            name="📍 ห้อง",
+            value=(
+                f"🛠️ แอดมิน　{channel_line('admin')}\n"
+                f"💖 รีวิว　{channel_line('review')}\n"
+                f"📣 ประกาศ　{channel_line('announce')}"
+            ),
+            inline=False,
+        )
         adult = self.cfg.adult_role_ids
         embed.add_field(
-            name="Role ยืนยันอายุ 18+",
+            name="🔞 Role ยืนยันอายุ 18+",
             value=" ".join(f"<@&{r}>" for r in adult) if adult else "⚠️ ยังไม่ตั้ง (`roles.adult_verified`) — บริการ 18+ เปิดบิลได้ทุกคน",
             inline=False,
         )

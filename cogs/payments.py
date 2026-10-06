@@ -18,6 +18,7 @@ from core.embeds import (
     dm_embed,
     job_embed,
     payment_embed,
+    rows_text,
 )
 from core.utils import (
     display_name,
@@ -227,9 +228,10 @@ class PaymentsCog(commands.Cog):
         else:
             await self.db.update_vip_order(ref_id, slip_url=attachment.url)
 
-        embed = discord.Embed(
-            title="📎 ได้รับภาพสลิปแล้ว",
-            description="ตรวจสอบภาพให้ถูกต้อง แล้วกดปุ่ม **ยืนยันส่งสลิป** เพื่อส่งให้แอดมินตรวจสอบค่ะ",
+        embed = dm_embed(
+            "📎 ได้รับภาพสลิปแล้ว",
+            [("🧾", "รายการ", f"`#{ref_id}`" if kind == "JOB" else f"`V#{ref_id}`")],
+            note="ตรวจภาพให้ถูกต้อง แล้วกด **ยืนยันส่งสลิป** · ส่งภาพผิด ส่งภาพใหม่ได้เลยค่ะ",
             color=COLOR_GOLD,
         )
         embed.set_image(url=attachment.url)
@@ -259,31 +261,32 @@ class PaymentsCog(commands.Cog):
 
         if kind == "JOB":
             await self.db.update_job(ref_id, status="SLIP_PENDING")
-            title = f"🔎 สลิปรอตรวจสอบ — บิล #{ref_id}"
-            desc = (
-                f"ลูกค้า: <@{record['customer_id']}>\n"
-                f"พนักงาน: {' '.join(f'<@{s}>' for s in job_staff_ids(record))}\n"
-                f"บริการ: {self.cfg.service_names(record['services'])}\n"
-                f"ยอด: **{money(record['total_price'])}**"
-            )
+            title = f"🔎 สลิปรอตรวจสอบ · บิล #{ref_id}"
+            desc = rows_text([
+                ("👤", "ลูกค้า", f"<@{record['customer_id']}>"),
+                ("💃", "พนักงาน", " ".join(f"<@{s}>" for s in job_staff_ids(record))),
+                ("🛎️", "บริการ", self.cfg.service_names(record["services"])),
+                ("💰", "ยอด", f"**{money(record['total_price'])}**"),
+            ])
         else:
             await self.db.update_vip_order(ref_id, status="SLIP_PENDING")
             package = self.cfg.vip_package(record["package_key"])
-            title = f"🔎 สลิปรอตรวจสอบ — VIP #{ref_id}"
-            desc = (
-                f"ลูกค้า: <@{record['customer_id']}>\n"
-                f"แพ็กเกจ: {package['name'] if package else record['package_key']}\n"
-                f"ยอด: **{money(record['total_price'])}**"
-            )
+            title = f"🔎 สลิปรอตรวจสอบ · VIP #{ref_id}"
+            desc = rows_text([
+                ("👤", "ลูกค้า", f"<@{record['customer_id']}>"),
+                ("💎", "แพ็กเกจ", package["name"] if package else record["package_key"]),
+                ("💰", "ยอด", f"**{money(record['total_price'])}**"),
+            ])
 
         embed = discord.Embed(title=title, description=desc, color=COLOR_GOLD)
         embed.set_image(url=record["slip_url"])
         await self.notify_admin(embed=embed, view=admin_slip_view(kind, ref_id))
 
         await interaction.edit_original_response(
-            embed=discord.Embed(
-                title="📤 ส่งสลิปให้แอดมินแล้ว",
-                description="รอแอดมินตรวจสอบสักครู่นะคะ ระบบจะแจ้งผลกลับมาทาง DM นี้ค่ะ",
+            embed=dm_embed(
+                "📤 ส่งสลิปให้แอดมินแล้ว",
+                lead="รอแอดมินตรวจสอบสักครู่นะคะ ⏳",
+                note="ผลการตรวจจะแจ้งกลับมาทาง DM นี้ค่ะ",
                 color=COLOR_INFO,
             ),
             view=None,
@@ -345,7 +348,7 @@ class PaymentsCog(commands.Cog):
             return
         embed = message.embeds[0] if message.embeds else discord.Embed()
         embed.color = color
-        embed.add_field(name="ผลการตรวจสอบ", value=text, inline=False)
+        embed.add_field(name="📋 ผลการตรวจสอบ", value=text, inline=False)
         await message.edit(embed=embed, view=None)
 
     # ------------------------------------------------------------ สถานะบิล
@@ -511,15 +514,17 @@ class PaymentsCog(commands.Cog):
                     ),
                 )
 
-        reason_text = f"\nเหตุผล: {reason}" if reason else ""
         await self.notify_admin(
-            embed=discord.Embed(
-                title="❌ พนักงานปฏิเสธงาน",
-                description=(
-                    f"บิล `#{job['id']}` ถูก {staff.mention} ปฏิเสธ{reason_text}\n"
-                    f"ลูกค้า: <@{job['customer_id']}> · บริการ: {self.cfg.service_names(job['services'])}\n"
-                    "กรุณาตรวจสอบ แล้วคีย์บิลใหม่ให้ถูกต้อง หรือเปลี่ยนพนักงานค่ะ"
-                ),
+            embed=dm_embed(
+                "❌ พนักงานปฏิเสธงาน",
+                [
+                    ("🧾", "บิล", f"`#{job['id']}`"),
+                    ("💃", "ปฏิเสธโดย", staff.mention),
+                    *([("📝", "เหตุผล", reason)] if reason else []),
+                    ("👤", "ลูกค้า", f"<@{job['customer_id']}>"),
+                    ("🛎️", "บริการ", self.cfg.service_names(job["services"])),
+                ],
+                note="ตรวจสอบ แล้วคีย์บิลใหม่ให้ถูกต้อง หรือเปลี่ยนพนักงานค่ะ",
                 color=COLOR_DANGER,
             )
         )

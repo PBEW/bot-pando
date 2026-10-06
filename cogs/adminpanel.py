@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, panel_embed
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, menu_item, panel_embed
 from core.utils import is_admin, purge_old_panels
 
 NOT_ADMIN = "เฉพาะแอดมินเท่านั้นค่ะ"
@@ -164,12 +164,12 @@ class CutoffConfirmView(AdminOnlyView):
 
 # ---------------------------------------------------------- แผงหลัก
 HELP_TEXT = (
-    "**แผงที่โพสต์ได้**\n"
+    "**🧩 แผงที่โพสต์ได้**\n"
     "`/panel reception` แผงรีเซปชั่น (เปิดบิล / ต่อเวลา / งานที่ดำเนินอยู่)\n"
     "`/panel_request` แผงบริการลูกค้า · `/panel_staff` เมนูพนักงาน · `/panel_attendance` แผงลงเวลา · `/panel_admin` แผงนี้\n\n"
-    "**บิล**\n"
+    "**🧾 บิล**\n"
     "`/bill info` ดูบิล · `/bill paid` ยืนยันชำระด้วยมือ · `/bill cancel` ยกเลิกบิล\n\n"
-    "**อื่น ๆ**\n"
+    "**🧰 อื่น ๆ**\n"
     "`/top_donate` อันดับโดเนท · `/coins give|check|event` เหรียญ Pandora · `/menu` เมนูร้าน · `/attendance_fix` แก้เวลาเข้างาน · `/cutoff` ตัดรอบ · `/summary` สรุปยอด\n"
     "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` โพสต์กระดานเช็คชื่อ · `/staff_today` มาทำงานวันนี้ · `/health` สถานะระบบ · `/sheets_format` จัดรูปแบบชีต · `/reload_config` โหลด config"
 )
@@ -224,9 +224,9 @@ class AdminPanel(discord.ui.View):
             embed=discord.Embed(
                 title="✏️ แก้เวลาเข้างาน",
                 description=(
-                    "เลือกพนักงาน แล้วเลือก\n"
-                    "✏️ **แก้กะล่าสุด** — ลืมกดออกงาน หรือเวลาไม่ถูก\n"
-                    "➕ **เพิ่มกะที่ลืมกด** — ลืมกดทั้งเข้าและออกงาน"
+                    "1️⃣ เลือกพนักงาน　2️⃣ เลือกสิ่งที่ต้องการ\n\n"
+                    + menu_item("✏️ แก้กะล่าสุด", "เวลาเข้า/ออกไม่ถูก") + "\n"
+                    + menu_item("➕ เพิ่มกะที่ลืมกด", "ลืมกดเข้างานทั้งกะ")
                 ),
                 color=COLOR_INFO,
             ),
@@ -237,12 +237,13 @@ class AdminPanel(discord.ui.View):
     @discord.ui.button(label="ตัดรอบทันที", emoji="✂️", style=discord.ButtonStyle.danger, custom_id="olp:admin:cutoff", row=1)
     async def cutoff(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.send_message(
-            embed=discord.Embed(
-                title="✂️ ยืนยันตัดรอบ?",
-                description=(
-                    "บอทจะสรุปยอดตั้งแต่ตัดยอดครั้งล่าสุดถึงตอนนี้ส่งเข้าห้องแอดมิน แล้วเริ่มนับยอดใหม่จากตอนนี้ "
-                    "(สรุปอัตโนมัติรอบถัดไปจะไม่นับยอดที่ตัดไปแล้วซ้ำ) **ย้อนกลับไม่ได้**"
-                ),
+            embed=dm_embed(
+                "✂️ ยืนยันตัดรอบ?",
+                [
+                    ("📊", "สรุปยอด", "ตั้งแต่ตัดครั้งล่าสุด → ตอนนี้ ส่งเข้าห้องแอดมิน"),
+                    ("🔄", "เริ่มนับใหม่", "จากตอนนี้ (สรุปอัตโนมัติรอบถัดไปไม่นับซ้ำ)"),
+                ],
+                note="⚠️ ย้อนกลับไม่ได้",
                 color=COLOR_DANGER,
             ),
             view=CutoffConfirmView(),

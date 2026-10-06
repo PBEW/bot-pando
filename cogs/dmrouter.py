@@ -6,7 +6,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_INFO
+from core.embeds import COLOR_INFO, dm_embed
 
 log = logging.getLogger("olp.dm")
 
@@ -44,9 +44,10 @@ class DMRouterCog(commands.Cog):
         # 3) ไม่มีบริบท — แนะนำวิธีใช้งาน
         if pending is not None:
             await message.reply(
-                embed=discord.Embed(
-                    title="📎 รอภาพสลิป",
-                    description="กรุณาส่ง **ภาพสลิปโอนเงิน** เข้ามาใน DM นี้ แล้วกดปุ่มยืนยันค่ะ",
+                embed=dm_embed(
+                    "📎 รอภาพสลิป",
+                    lead="กรุณาส่ง **ภาพสลิปโอนเงิน** (ไฟล์รูป) เข้ามาใน DM นี้ค่ะ",
+                    note="ส่งรูปแล้วกด **ยืนยันส่งสลิป** เพื่อส่งให้แอดมินตรวจ",
                     color=COLOR_INFO,
                 )
             )
@@ -54,12 +55,10 @@ class DMRouterCog(commands.Cog):
 
         if message.content.strip():
             await message.reply(
-                embed=discord.Embed(
-                    title="🤖 Pandora",
-                    description=(
-                        "ตอนนี้ยังไม่มีรายการที่กำลังดำเนินอยู่ค่ะ\n"
-                        "กรุณาใช้ปุ่มที่หน้าแผงบริการในเซิร์ฟเวอร์เพื่อเริ่มรายการใหม่นะคะ"
-                    ),
+                embed=dm_embed(
+                    "🤖 Pandora",
+                    lead="ตอนนี้ยังไม่มีรายการที่กำลังดำเนินอยู่ค่ะ",
+                    note="ใช้ปุ่มในแผงบริการของเซิร์ฟเวอร์เพื่อเริ่มรายการใหม่ เช่น 💬 สอบถามเจ้าหน้าที่",
                     color=COLOR_INFO,
                 )
             )

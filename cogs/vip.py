@@ -116,11 +116,11 @@ class VipShopView(discord.ui.View):
         embed = discord.Embed(
             title="💎 สมัคร / ต่ออายุ VIP",
             description=(
-                "เลือกแพ็กเกจ แล้วกดปุ่ม **ยืนยัน & ใส่โค้ดส่วนลด**\n"
-                "*ต่ออายุก่อนหมดอายุจะสะสมต่อจากวันหมดอายุเดิม ถ้าเปลี่ยนระดับ (อัปเกรด) จะเริ่มนับใหม่*"
+                "1️⃣ เลือกแพ็กเกจ　2️⃣ กด **ยืนยัน & ใส่โค้ดส่วนลด**　3️⃣ ชำระผ่าน QR ใน DM"
             ),
             color=COLOR_GOLD,
         )
+        embed.set_footer(text="ต่ออายุก่อนหมดอายุ = สะสมต่อจากวันเดิม · เปลี่ยนระดับ = เริ่มนับใหม่")
         perks = perks_text(self.cfg)
         if perks:
             embed.add_field(name="สิทธิ์สมาชิก VIP", value=perks[:1024], inline=False)
@@ -177,13 +177,13 @@ class VipShopView(discord.ui.View):
 
         self.stop()
         await interaction.edit_original_response(
-            embed=discord.Embed(
-                title="📨 ส่งรายละเอียดการชำระเงินให้แล้ว",
-                description=(
-                    f"คำสั่งซื้อ `V#{order_id}` · {pkg['name']}\n"
-                    f"ยอดชำระ **{money(total)}**\n"
-                    "กรุณาตรวจสอบ DM ของบอทและส่งภาพสลิปกลับมาได้เลยค่ะ" + note
-                ),
+            embed=dm_embed(
+                "📨 ส่งรายละเอียดการชำระเงินให้แล้ว",
+                [
+                    ("💎", "คำสั่งซื้อ", f"`V#{order_id}` · {pkg['name']}"),
+                    ("💰", "ยอดชำระ", f"**{money(total)}**"),
+                ],
+                note="ตรวจสอบ DM ของบอท สแกน QR แล้วส่งภาพสลิปกลับมาได้เลยค่ะ" + note,
                 color=COLOR_OK,
             ),
             view=None,
@@ -283,11 +283,15 @@ class VipCog(commands.Cog):
         tier = await active_tier(self.db, interaction.user.id, now_local)
 
         if tier is None:
-            embed = discord.Embed(
-                title="🔍 สถานะสิทธิ์ VIP",
-                description="ตอนนี้คุณยังไม่มีสิทธิ์ VIP ค่ะ กดปุ่ม 💎 เพื่อเลือกแพ็กเกจได้เลย",
+            embed = dm_embed(
+                "🔍 สถานะสิทธิ์ VIP",
+                lead="ตอนนี้คุณยังไม่มีสิทธิ์ VIP ค่ะ",
+                note="กดปุ่ม 💎 สมัคร VIP / ต่ออายุ เพื่อเลือกแพ็กเกจได้เลย",
                 color=COLOR_INFO,
             )
+            perks = perks_text(self.cfg)
+            if perks:
+                embed.add_field(name="✨ สิทธิ์สมาชิก VIP", value=perks[:1024], inline=False)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
@@ -295,10 +299,14 @@ class VipCog(commands.Cog):
         expires = from_iso(record["expires_at"])
         tier_cfg = self.cfg.vip_tier(tier)
 
-        embed = discord.Embed(title="🔍 สถานะสิทธิ์ VIP", color=COLOR_GOLD)
-        embed.add_field(name="ระดับ", value=f"{tier_cfg.get('emoji', '')} {tier_cfg['name']}", inline=True)
-        embed.add_field(name="หมดอายุ", value=fmt_datetime(expires, self.cfg.tz), inline=True)
-        embed.add_field(name="เดือนสะสม (ระดับนี้)", value=f"{record['streak_months']} เดือน", inline=True)
+        days_left = max((expires - now_local).days, 0)
+        embed = discord.Embed(
+            title="🔍 สถานะสิทธิ์ VIP",
+            description=f"## {tier_cfg.get('emoji', '')} {tier_cfg['name']}\n┗ เหลืออีก **{days_left}** วัน",
+            color=COLOR_GOLD,
+        )
+        embed.add_field(name="📅 หมดอายุ", value=fmt_datetime(expires, self.cfg.tz), inline=True)
+        embed.add_field(name="🏅 เดือนสะสม", value=f"{record['streak_months']} เดือน", inline=True)
 
         if tier_cfg.get("upgrade_to"):
             need = int(tier_cfg["upgrade_streak_months"])
@@ -513,13 +521,13 @@ class VipCog(commands.Cog):
             created_at=to_iso(now_utc()),
         )
         to_name = self.cfg.vip_tier_name(upgrade_to)
-        embed = discord.Embed(
-            title="🎁 ลูกค้าสะสมครบ 12 เดือน — รออนุมัติอัปเกรดฟรี",
-            description=(
-                f"ลูกค้า <@{customer_id}>\n"
-                f"สะสมระดับ **{tier_cfg['name']}** ต่อเนื่อง **{streak_months} เดือน**\n"
-                f"เข้าเงื่อนไขอัปเกรดฟรีเป็น **{to_name}** (ฟรี 1 เดือน)"
-            ),
+        embed = dm_embed(
+            "🎁 ลูกค้าสะสมครบ — รออนุมัติอัปเกรดฟรี",
+            [
+                ("👤", "ลูกค้า", f"<@{customer_id}>"),
+                ("🏅", "สะสม", f"**{tier_cfg['name']}** ต่อเนื่อง **{streak_months} เดือน**"),
+                ("⬆️", "อัปเกรดเป็น", f"**{to_name}** (ฟรี 1 เดือน)"),
+            ],
             color=COLOR_WARN,
         )
         payments = self.bot.get_cog("PaymentsCog")
@@ -679,11 +687,14 @@ class VipCog(commands.Cog):
         await self._check_streak_upgrade(interaction.guild_id, member.id, tier_cfg, new_streak)
 
         await interaction.followup.send(
-            embed=discord.Embed(
-                description=(
-                    f"ให้สิทธิ์ {tier_cfg['name']} แก่ {member.mention} แล้ว "
-                    f"หมดอายุ {fmt_datetime(new_expiry_local, self.cfg.tz)}{role_note}"
-                ),
+            embed=dm_embed(
+                "✅ ให้สิทธิ์ VIP แล้ว",
+                [
+                    ("👤", "สมาชิก", member.mention),
+                    ("💎", "ระดับ", tier_cfg["name"]),
+                    ("📅", "หมดอายุ", fmt_datetime(new_expiry_local, self.cfg.tz)),
+                ],
+                note=role_note.strip() or None,
                 color=COLOR_OK,
             ),
             ephemeral=True,

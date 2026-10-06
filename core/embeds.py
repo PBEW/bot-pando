@@ -60,6 +60,11 @@ def progress_bar(current: float, target: float, width: int = 10) -> str:
     return "▰" * filled + "▱" * (width - filled) + f" {ratio * 100:.0f}%"
 
 
+def rows_text(rows) -> str:
+    """แถว ไอคอน + หัวข้อตัวหนา + ค่า (ใช้ใน DM / เมนูตั้งค่า / สรุปต่างๆ)"""
+    return "\n".join(f"{icon} **{label}**　{value}" for icon, label, value in rows)
+
+
 # ------------------------------------------------------------ ข้อความ DM
 def dm_embed(
     title: str,
@@ -78,7 +83,7 @@ def dm_embed(
     if lead:
         parts.append(lead)
     if rows:
-        parts.append("\n".join(f"{icon} **{label}**　{value}" for icon, label, value in rows))
+        parts.append(rows_text(rows))
     if note:
         parts.append("\n".join(f"> {line}" for line in note.splitlines()))
     embed = discord.Embed(title=title, description="\n\n".join(parts)[:4096] or None, color=color)

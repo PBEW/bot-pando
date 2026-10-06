@@ -229,12 +229,12 @@ class SchedulerCog(commands.Cog):
             await self.db.set_meta("last_cutoff", current_start.date().isoformat())
 
         summary.add_field(
-            name="ชีตรอบใหม่",
+            name="📄 ชีตรอบใหม่",
             value=f"`{new_title}`" + ("" if created else " *(ยังไม่ได้เปิดใช้ Google Sheets)*"),
             inline=False,
         )
         summary.add_field(
-            name="ตัดรอบครั้งถัดไป",
+            name="⏭️ ตัดรอบครั้งถัดไป",
             value=fmt_datetime(next_cutoff_local(now_local, self.cfg), self.cfg.tz),
             inline=False,
         )
@@ -266,14 +266,14 @@ class SchedulerCog(commands.Cog):
         embed = discord.Embed(
             title="📊 สรุปยอดรอบบิล",
             description=(
-                f"รอบวันที่ **{start_local:%d/%m/%Y}** ถึง **{end_local:%d/%m/%Y}**\n"
-                f"จำนวนบิลที่ชำระแล้ว: **{len(jobs)}** ใบ"
+                f"📅 **{start_local:%d/%m/%Y %H:%M}** → **{end_local:%d/%m/%Y %H:%M}**\n"
+                f"🧾 บิลที่ชำระแล้ว **{len(jobs)}** ใบ"
             ),
             color=COLOR_OK,
         )
-        embed.add_field(name="รายรับรวม (In)", value=money(total_in), inline=True)
-        embed.add_field(name="ส่วนแบ่งพนักงาน (Out)", value=money(total_out), inline=True)
-        embed.add_field(name="รายได้เข้าร้าน", value=money(total_shop), inline=True)
+        embed.add_field(name="📥 รายรับรวม (In)", value=f"**{money(total_in)}**", inline=True)
+        embed.add_field(name="📤 ส่วนแบ่งพนักงาน (Out)", value=money(total_out), inline=True)
+        embed.add_field(name="🏪 รายได้เข้าร้าน", value=money(total_shop), inline=True)
 
         guild = self.bot.get_guild(self.cfg.guild_id)
         if per_staff:
@@ -290,20 +290,21 @@ class SchedulerCog(commands.Cog):
                     else "⚠️ ยังไม่ได้ใส่บัญชีรับเงิน"
                 )
                 lines.append(
-                    f"• **{name}** — {count} บิล · In {money(gross)} · **โอน {share:,.2f} บาท**\n　{acc_text}"
+                    f"💃 **{name}** · {count} บิล · In {money(gross)}\n"
+                    f"┗ 💸 **โอน {share:,.2f} บาท**\n┗ {acc_text}"
                 )
             # แบ่งเป็นหลาย field ถ้ายาวเกิน 1024 ตัวอักษร (พนักงานเยอะ)
             chunk: list[str] = []
             for line in lines:
                 if sum(len(x) + 1 for x in chunk) + len(line) > 1000:
-                    embed.add_field(name="แยกตามพนักงาน", value="\n".join(chunk), inline=False)
+                    embed.add_field(name="👥 แยกตามพนักงาน", value="\n".join(chunk), inline=False)
                     chunk = []
                 chunk.append(line)
-            embed.add_field(name="แยกตามพนักงาน", value="\n".join(chunk), inline=False)
+            embed.add_field(name="👥 แยกตามพนักงาน", value="\n".join(chunk), inline=False)
 
         url = await self.bot.sheets.spreadsheet_url()
         if url:
-            embed.add_field(name="Google Sheets", value=url, inline=False)
+            embed.add_field(name="📊 Google Sheets", value=url, inline=False)
         return embed
 
     # --------------------------------------------------------- Top Donate
@@ -346,7 +347,7 @@ class SchedulerCog(commands.Cog):
         for i, row in enumerate(rows[: self.cfg.top_donate_size]):
             name = await display_name(self.bot, guild, row["customer_id"])
             badge = medals[i] if i < len(medals) else f"`#{i + 1}`"
-            lines.append(f"{badge} **{name}** — {money(row['total'])}")
+            lines.append(f"{badge} **{name}**\n┗ 💜 {money(row['total'])}")
         embed.description = "\n".join(lines)
 
         top = rows[0]
