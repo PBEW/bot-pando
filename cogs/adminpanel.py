@@ -7,8 +7,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, menu_item, panel_embed
+from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, menu_item, panel_embed, rows_text
 from core.utils import is_admin, purge_old_panels
+from core.vip_logic import GRANT_DURATIONS, duration_label
 
 NOT_ADMIN = "เฉพาะแอดมินเท่านั้นค่ะ"
 
@@ -38,44 +39,73 @@ class AdminOnlyView(discord.ui.View):
 
 # ---------------------------------------------------------------- ให้ VIP
 class VipGrantView(AdminOnlyView):
+    """มอบ VIP: เลือกสมาชิก → ระยะเวลา (1 วัน – 6 เดือน) → (ระดับ ถ้ามีหลายระดับ) → ยืนยัน"""
+
     def __init__(self, cfg) -> None:
         super().__init__()
+        self.cfg = cfg
         self.member: discord.Member | None = None
-        self.tier_key: str | None = None
-        self.months = 1
-
         tiers = cfg.vip_tiers
-        self.tier_select.options = [
-            discord.SelectOption(label=t["name"], value=t["key"], emoji=t.get("emoji") or None)
-            for t in tiers
-        ] or [discord.SelectOption(label="ยังไม่ได้ตั้งค่า vip_tiers", value="-")]
-        self.months_select.options = [
-            discord.SelectOption(label=f"{m} เดือน", value=str(m), default=m == 1)
-            for m in (1, 2, 3, 6, 12)
+        self.tier_key: str | None = tiers[0]["key"] if tiers else None
+        self.duration = "month:1"
+
+        self.duration_select.options = [
+            discord.SelectOption(
+                label=label, value=f"{unit}:{amount}", emoji="📅" if unit == "day" else "🗓️",
+                default=f"{unit}:{amount}" == self.duration,
+            )
+            for unit, amount, label in GRANT_DURATIONS
         ]
+        if len(tiers) > 1:
+            self.tier_select.options = [
+                discord.SelectOption(label=t["name"], value=t["key"], emoji=t.get("emoji") or None, default=i == 0)
+                for i, t in enumerate(tiers)
+            ]
+        else:
+            self.remove_item(self.tier_select)
+
+    def embed(self) -> discord.Embed:
+        unit, amount = self.duration.split(":")
+        return discord.Embed(
+            title="💎 มอบ VIP ให้สมาชิก",
+            description=rows_text([
+                ("👤", "สมาชิก", self.member.mention if self.member else "*ยังไม่เลือก*"),
+                ("⏳", "ระยะเวลา", duration_label(unit, int(amount))),
+                ("💎", "ระดับ", self.cfg.vip_tier_name(self.tier_key) if self.tier_key else "⚠️ ยังไม่ได้ตั้งค่า VIP"),
+            ])
+            + "\n\n> ถ้าสมาชิกมี VIP ระดับเดียวกันอยู่แล้ว จะต่อเวลาจากวันหมดอายุเดิม · บอทส่ง DM แจ้งให้อัตโนมัติ",
+            color=COLOR_GOLD,
+        )
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="1) เลือกสมาชิก", row=0)
     async def member_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect) -> None:
         self.member = _member(interaction, select.values[0])
-        await interaction.response.defer()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
 
-    @discord.ui.select(placeholder="2) เลือกระดับ VIP", row=1)
+    @discord.ui.select(placeholder="2) ระยะเวลา (1 วัน – 6 เดือน)", row=1)
+    async def duration_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
+        self.duration = select.values[0]
+        for opt in select.options:
+            opt.default = opt.value == self.duration
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    @discord.ui.select(placeholder="3) ระดับ VIP", row=2)
     async def tier_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
         self.tier_key = select.values[0]
-        await interaction.response.defer()
+        for opt in select.options:
+            opt.default = opt.value == self.tier_key
+        await interaction.response.edit_message(embed=self.embed(), view=self)
 
-    @discord.ui.select(placeholder="3) จำนวนเดือน (ค่าเริ่มต้น 1 เดือน)", row=2)
-    async def months_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
-        self.months = int(select.values[0])
-        await interaction.response.defer()
-
-    @discord.ui.button(label="ยืนยันให้สิทธิ์", emoji="✅", style=discord.ButtonStyle.success, row=3)
+    @discord.ui.button(label="ยืนยันมอบ VIP", emoji="✅", style=discord.ButtonStyle.success, row=3)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if self.member is None or not self.tier_key or self.tier_key == "-":
-            await interaction.response.send_message("เลือกสมาชิกและระดับ VIP ให้ครบก่อนค่ะ", ephemeral=True)
+        if self.member is None or not self.tier_key:
+            await interaction.response.send_message("เลือกสมาชิกให้ครบก่อนค่ะ", ephemeral=True)
             return
         self.stop()
-        await interaction.client.get_cog("VipCog").grant_vip(interaction, self.member, self.tier_key, self.months)
+        unit, amount = self.duration.split(":")
+        await interaction.client.get_cog("VipCog").grant_vip(
+            interaction, self.member, self.tier_key, int(amount), unit=unit
+        )
 
 
 # ------------------------------------------------------- แก้เวลาเข้างาน
@@ -169,6 +199,8 @@ HELP_TEXT = (
     "`/panel_request` แผงบริการลูกค้า · `/panel_staff` เมนูพนักงาน · `/panel_attendance` แผงลงเวลา · `/panel_admin` แผงนี้\n\n"
     "**🧾 บิล**\n"
     "`/bill info` ดูบิล · `/bill paid` ยืนยันชำระด้วยมือ · `/bill cancel` ยกเลิกบิล\n\n"
+    "**💎 VIP**\n"
+    "`/vip_grant member days|months` มอบ VIP 1 วัน – 6 เดือน\n\n"
     "**🧰 อื่น ๆ**\n"
     "`/top_donate` อันดับโดเนท · `/coins give|check|event` เหรียญ Pandora · `/menu` เมนูร้าน · `/attendance_fix` แก้เวลาเข้างาน · `/cutoff` ตัดรอบ · `/summary` สรุปยอด\n"
     "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` โพสต์กระดานเช็คชื่อ · `/staff_today` มาทำงานวันนี้ · `/health` สถานะระบบ · `/sheets_format` จัดรูปแบบชีต · `/reload_config` โหลด config"
@@ -271,6 +303,17 @@ class AdminPanel(discord.ui.View):
     async def coins(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.client.get_cog("CoinsCog").open_admin_menu(interaction)
 
+    @discord.ui.button(label="มอบ VIP", emoji="💎", style=discord.ButtonStyle.primary, custom_id="olp:admin:vip_grant", row=2)
+    async def vip_grant(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cfg = interaction.client.cfg
+        if not cfg.vip_enabled:
+            await interaction.response.send_message(
+                "ระบบ VIP ยังปิดอยู่ค่ะ — เปิดที่ ⚙️ ตั้งค่าร้าน → 💎 VIP ก่อน", ephemeral=True
+            )
+            return
+        view = VipGrantView(cfg)
+        await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
+
     @discord.ui.button(label="คำสั่งทั้งหมด", emoji="📖", style=discord.ButtonStyle.secondary, custom_id="olp:admin:help", row=2)
     async def help(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.send_message(
@@ -307,6 +350,7 @@ class AdminPanelCog(commands.Cog):
                     ("🪙 เหรียญ Pandora", "ดู/ปรับเหรียญ · คูปอง · อีเวนต์ · รางวัล"),
                     ("✏️ แก้เวลาเข้างาน", "แก้กะล่าสุด หรือเพิ่มกะที่ลืมกด"),
                     ("✂️ ตัดรอบทันที", "สรุปยอดตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้"),
+                    ("💎 มอบ VIP", "ให้ VIP สมาชิก 1 วัน – 6 เดือน (ต่อจากวันหมดอายุเดิมได้)"),
                 ]),
                 ("🩺 ระบบ", [
                     ("🩺 สถานะระบบ", "ห้อง · Role · Google Sheets · งานค้าง"),
