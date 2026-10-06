@@ -417,10 +417,14 @@ class AttendanceCog(commands.Cog):
         guild = self.bot.get_guild(self.cfg.guild_id)
         closed = []
         for row in await self.db.all_open_attendance():
-            if from_iso(row["clock_in"]) >= cutoff:
+            clock_in = from_iso(row["clock_in"])
+            if clock_in >= cutoff:
                 continue
+            # ปิดที่ "ตี 1 แรกหลังเข้างาน" ไม่ใช่ตี 1 ล่าสุด — ถ้าบอทดับข้ามวัน จะได้ไม่นับชั่วโมงเกินเป็นวันๆ
+            close_at = self.workday_start(clock_in.astimezone(self.cfg.tz)) + dt.timedelta(days=1)
+            row["close_at"] = close_at
             await self.db.update_attendance(
-                row["id"], clock_out=to_iso(cutoff), auto_closed=1, note=f"ตัดยอดอัตโนมัติ {self.cutoff_label()}"
+                row["id"], clock_out=to_iso(close_at), auto_closed=1, note=f"ตัดยอดอัตโนมัติ {self.cutoff_label()}"
             )
             await self._set_on_duty(guild, row["user_id"], False)
             await self._log_to_sheet(await self.db.get_attendance(row["id"]))
@@ -428,7 +432,7 @@ class AttendanceCog(commands.Cog):
 
         if closed:
             lines = [
-                f"• <@{r['user_id']}> — {fmt_hours((cutoff - from_iso(r['clock_in'])).total_seconds())}"
+                f"• <@{r['user_id']}> — {fmt_hours((r['close_at'] - from_iso(r['clock_in'])).total_seconds())}"
                 for r in sorted(closed, key=lambda r: r["clock_in"])
             ]
             await self._notify_admin(

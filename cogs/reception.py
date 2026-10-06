@@ -641,13 +641,17 @@ class OpenBillWizard(discord.ui.View):
         service_keys = [key for key in self.service_keys for _ in range(quantities.get(key, 1))]
 
         if self.voucher:
+            # คิดราคาแบบเดียวกับตอนสร้างบิลจริง (ระดับ VIP + ส่วนแบ่งพนักงาน) จะได้ไม่ผ่านตรงนี้แล้วไปตกตอนสร้างบิล
+            now_local = dt.datetime.now(self.cfg.tz)
+            tier = await active_tier(self.cog.db, self.customer_id, now_local)
             quote = await quote_services(
-                self.cfg, self.cog.db, service_keys, customer_id=self.customer_id, tier=None,
-                staff_count=len(self.staff_ids), customer_count=len(self.customers),
+                self.cfg, self.cog.db, service_keys, customer_id=self.customer_id, tier=tier,
+                staff_count=len(self.staff_ids), customer_count=len(self.customers), now_local=now_local,
             )
+            staff_share, _ = split_revenue(self.cfg, self.staff_ids, quote.total_price, quote.amounts)
             item = coins.reward(self.cfg, self.voucher["reward_key"])
             _, voucher_problem = coins.voucher_discount(
-                self.cfg, item, service_keys, quote.amounts, total=quote.total_price
+                self.cfg, item, service_keys, quote.amounts, total=quote.total_price, staff_share=staff_share
             )
             if voucher_problem:
                 await interaction.response.send_message(f"🎟️ {voucher_problem}", ephemeral=True)
@@ -972,16 +976,19 @@ class ReceptionCog(commands.Cog):
         discount = 0.0
         if voucher_id:
             voucher = await self.db.fetchone(
-                "SELECT * FROM coin_vouchers WHERE id = ? AND user_id = ? AND status = 'ACTIVE'", (voucher_id, customer_id)
+                "SELECT * FROM coin_vouchers WHERE id = ? AND user_id = ? AND status = 'ACTIVE' AND expires_at > ?",
+                (voucher_id, customer_id, to_iso(now_utc())),
             )
-            if voucher is None:
-                voucher_id = None
-            else:
+            if voucher is not None:
                 item = coins.reward(self.cfg, voucher["reward_key"])
                 discount, problem = coins.voucher_discount(
                     self.cfg, item, service_keys, quote.amounts, total=quote.total_price, staff_share=staff_share
                 )
                 discount = 0.0 if problem else min(discount, quote.total_price)
+            # ใช้คูปองเฉพาะเมื่อได้ส่วนลดจริง และล็อกคูปองก่อนสร้างบิล (2 บิลใช้คูปองใบเดียวกันไม่ได้)
+            coins_cog = self.bot.get_cog("CoinsCog")
+            if voucher is None or discount <= 0 or coins_cog is None or not await coins_cog.use_voucher(voucher_id, 0):
+                voucher_id, discount = None, 0.0
         total_price = round(quote.total_price - discount, 2)
         shop_share = round(total_price - staff_share, 2)
         end = start + dt.timedelta(minutes=quote.duration_minutes)
@@ -1015,9 +1022,7 @@ class ReceptionCog(commands.Cog):
         )
         await reserve_quota_for_job(self.db, customer_id, quote, cycle)
         if voucher_id:
-            coins_cog = self.bot.get_cog("CoinsCog")
-            if coins_cog is not None:
-                await coins_cog.use_voucher(voucher_id, job_id)
+            await self.db.execute("UPDATE coin_vouchers SET used_job_id = ? WHERE id = ?", (job_id, voucher_id))
 
         job = await self.db.get_job(job_id)
         shares = {sid: share for sid, _, share in job_staff_split(self.cfg, job)}
@@ -1149,8 +1154,18 @@ class ReceptionCog(commands.Cog):
             return
 
         await interaction.response.defer()
-        accepted.append(interaction.user.id)
-        await self.db.update_job(job_id, accepted_by=json.dumps(accepted))
+        # เพิ่มชื่อตัวเองใน accepted_by ด้วยคำสั่งเดียว (ไม่อ่าน-แล้ว-เขียนทับ) กันพนักงานกดพร้อมกันแล้วชื่อหาย
+        added = await self.db.execute_count(
+            "UPDATE jobs SET accepted_by = json_insert(COALESCE(accepted_by, '[]'), '$[#]', ?) "
+            "WHERE id = ? AND status = 'PENDING_STAFF' "
+            "AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(accepted_by, '[]')) WHERE value = ?)",
+            (interaction.user.id, job_id, interaction.user.id),
+        )
+        if not added:
+            await interaction.followup.send("บิลนี้ถูกดำเนินการไปแล้ว หรือคุณกดรับไปแล้วค่ะ", ephemeral=True)
+            return
+        job = await self.db.get_job(job_id)
+        accepted = list(job.get("accepted_by") or [])
         waiting = [sid for sid in team if sid not in accepted]
         payments = self.bot.get_cog("PaymentsCog")
 
@@ -1165,7 +1180,12 @@ class ReceptionCog(commands.Cog):
             )
             return
 
-        await self.db.update_job(job_id, status="ACCEPTED", accepted_at=to_iso(now_utc()))
+        # คนที่ทำให้ครบทีมเท่านั้นที่เปลี่ยนเป็น ACCEPTED และส่ง QR (กันส่ง QR ซ้ำ 2 ใบ)
+        if not await self.db.claim_job(job_id, ["PENDING_STAFF"], status="ACCEPTED", accepted_at=to_iso(now_utc())):
+            await interaction.edit_original_response(
+                embed=job_embed(self.cfg, job, title="✅ รับงานแล้ว", color=COLOR_OK), view=None
+            )
+            return
         job = await self.db.get_job(job_id)
         await interaction.edit_original_response(
             embed=job_embed(self.cfg, job, title="✅ รับงานแล้ว" + (" — ครบทุกคน" if len(team) > 1 else ""), color=COLOR_OK),
@@ -1211,7 +1231,9 @@ class ReceptionCog(commands.Cog):
 
         await interaction.response.defer()
         payments = self.bot.get_cog("PaymentsCog")
-        await payments.reject_job_by_staff(job, interaction.user, reason)
+        if not await payments.reject_job_by_staff(job, interaction.user, reason):
+            await interaction.followup.send("บิลนี้ถูกดำเนินการไปแล้วค่ะ", ephemeral=True)
+            return
 
         job = await self.db.get_job(job_id)
         embed = job_embed(self.cfg, job, title="❌ ปฏิเสธงานแล้ว", color=COLOR_DANGER)

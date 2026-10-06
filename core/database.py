@@ -248,6 +248,13 @@ class Database:
         await self.conn.commit()
         return cur.lastrowid or 0
 
+    async def execute_count(self, sql: str, params: Iterable[Any] = ()) -> int:
+        """รัน UPDATE/DELETE แล้วคืนจำนวนแถวที่ถูกแก้ (ใช้ทำ 'ใครกดก่อนได้ก่อน' กันกดซ้ำ/กดพร้อมกัน)"""
+        assert self.conn is not None
+        cur = await self.conn.execute(sql, tuple(params))
+        await self.conn.commit()
+        return cur.rowcount
+
     async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> dict | None:
         assert self.conn is not None
         async with self.conn.execute(sql, tuple(params)) as cur:
@@ -293,6 +300,17 @@ class Database:
 
     async def update_job(self, job_id: int, **fields: Any) -> None:
         await self._update("jobs", job_id, fields)
+
+    async def claim_job(self, job_id: int, from_statuses: Iterable[str], **fields: Any) -> bool:
+        """อัปเดตบิลเฉพาะเมื่อสถานะยังอยู่ใน from_statuses — คืน True ถ้าเราเป็นคนเปลี่ยนสำเร็จ"""
+        statuses = list(from_statuses)
+        assign = ", ".join(f"{k} = ?" for k in fields)
+        holders = ", ".join("?" for _ in statuses)
+        changed = await self.execute_count(
+            f"UPDATE jobs SET {assign} WHERE id = ? AND status IN ({holders})",
+            (*fields.values(), job_id, *statuses),
+        )
+        return changed > 0
 
     async def jobs_by_status(self, statuses: Iterable[str]) -> list[dict]:
         statuses = list(statuses)
@@ -471,8 +489,16 @@ class Database:
     async def get_pending_slip(self, user_id: int) -> dict | None:
         return await self.fetchone("SELECT * FROM pending_slips WHERE user_id = ?", (user_id,))
 
-    async def clear_pending_slip(self, user_id: int) -> None:
-        await self.execute("DELETE FROM pending_slips WHERE user_id = ?", (user_id,))
+    async def clear_pending_slip(self, user_id: int, kind: str | None = None, ref_id: int | None = None) -> bool:
+        """ลบช่องรอสลิป — ถ้าระบุ kind/ref_id จะลบเฉพาะเมื่อยังชี้ไปที่รายการนั้น (ไม่ลบของบิลอื่น)"""
+        if kind is None:
+            return await self.execute_count("DELETE FROM pending_slips WHERE user_id = ?", (user_id,)) > 0
+        return (
+            await self.execute_count(
+                "DELETE FROM pending_slips WHERE user_id = ? AND kind = ? AND ref_id = ?", (user_id, kind, ref_id)
+            )
+            > 0
+        )
 
     # ---------------------------------------------------------- attendance
     async def open_attendance(self, user_id: int) -> dict | None:

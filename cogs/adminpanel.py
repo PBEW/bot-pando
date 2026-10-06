@@ -149,7 +149,7 @@ class CutoffConfirmView(AdminOnlyView):
         await interaction.response.edit_message(
             embed=discord.Embed(description="⏳ กำลังตัดรอบ...", color=COLOR_WARN), view=None
         )
-        await interaction.client.get_cog("SchedulerCog").run_cutoff()
+        await interaction.client.get_cog("SchedulerCog").run_cutoff(manual=True)
         await interaction.edit_original_response(
             embed=discord.Embed(description="✅ ตัดรอบเรียบร้อย ส่งสรุปเข้าห้องแอดมินแล้วค่ะ", color=COLOR_OK)
         )
@@ -239,7 +239,10 @@ class AdminPanel(discord.ui.View):
         await interaction.response.send_message(
             embed=discord.Embed(
                 title="✂️ ยืนยันตัดรอบ?",
-                description="บอทจะสรุปยอดรอบนี้ส่งเข้าห้องแอดมินและเริ่มรอบใหม่ **ย้อนกลับไม่ได้**",
+                description=(
+                    "บอทจะสรุปยอดตั้งแต่ตัดยอดครั้งล่าสุดถึงตอนนี้ส่งเข้าห้องแอดมิน แล้วเริ่มนับยอดใหม่จากตอนนี้ "
+                    "(สรุปอัตโนมัติรอบถัดไปจะไม่นับยอดที่ตัดไปแล้วซ้ำ) **ย้อนกลับไม่ได้**"
+                ),
                 color=COLOR_DANGER,
             ),
             view=CutoffConfirmView(),
