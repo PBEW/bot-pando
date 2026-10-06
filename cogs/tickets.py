@@ -7,7 +7,7 @@ import re
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.utils import display_name, is_admin, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.tickets")
@@ -102,17 +102,14 @@ class TicketsCog(commands.Cog):
             last_activity=now,
         )
 
-        customer_embed = discord.Embed(
-            title="💬 เปิดรายการสอบถามแล้ว",
-            description=(
-                f"หมายเลข `T#{ticket_id}`\n"
-                "กำลังแจ้งเจ้าหน้าที่ให้รับเรื่องค่ะ เมื่อเจ้าหน้าที่กดรับเรื่องแล้ว "
-                "คุณสามารถพิมพ์ข้อความใน DM นี้เพื่อคุยกับเจ้าหน้าที่ได้ทันที"
-            ),
+        customer_embed = dm_embed(
+            "💬 เปิดรายการสอบถามแล้ว",
+            [("🎫", "หมายเลข", f"`T#{ticket_id}`"), ("⏳", "สถานะ", "กำลังแจ้งเจ้าหน้าที่ให้รับเรื่อง")],
+            note="เมื่อเจ้าหน้าที่รับเรื่องแล้ว พิมพ์ข้อความใน DM นี้เพื่อคุยได้ทันทีค่ะ",
             color=COLOR_INFO,
         )
         if topic:
-            customer_embed.add_field(name="รายละเอียดที่ส่งไป", value=topic[:1024], inline=False)
+            customer_embed.add_field(name="📝 รายละเอียดที่ส่งไป", value=topic[:1024], inline=False)
         dm = await send_dm(self.bot, interaction.user.id, embed=customer_embed)
         if dm is None:
             await self.db.update_ticket(ticket_id, status="CLOSED", closed_at=now)
@@ -180,12 +177,11 @@ class TicketsCog(commands.Cog):
         await send_dm(
             self.bot,
             ticket["customer_id"],
-            embed=discord.Embed(
-                title="✅ เจ้าหน้าที่รับเรื่องแล้ว",
-                description=(
-                    "พิมพ์ข้อความใน DM นี้ได้เลยค่ะ ระบบจะส่งต่อให้เจ้าหน้าที่ทันที\n"
-                    f"*หากไม่มีการสนทนาเกิน {timeout} นาที ระบบจะปิดรายการอัตโนมัติ*"
-                ),
+            embed=dm_embed(
+                "✅ เจ้าหน้าที่รับเรื่องแล้ว",
+                [("🎫", "หมายเลข", f"`T#{ticket_id}`")],
+                lead="พิมพ์ข้อความใน DM นี้ได้เลยค่ะ ระบบจะส่งต่อให้เจ้าหน้าที่ทันที 💬",
+                note=f"ไม่มีการสนทนาเกิน {timeout} นาที ระบบจะปิดรายการให้อัตโนมัติ",
                 color=COLOR_OK,
             ),
             view=ticket_close_view(ticket_id),
@@ -193,12 +189,10 @@ class TicketsCog(commands.Cog):
         await send_dm(
             self.bot,
             interaction.user.id,
-            embed=discord.Embed(
-                title=f"💬 เชื่อมต่อกับลูกค้าแล้ว · T#{ticket_id}",
-                description=(
-                    f"ลูกค้า: <@{ticket['customer_id']}>\n"
-                    "พิมพ์ข้อความใน DM นี้เพื่อตอบลูกค้าได้เลยค่ะ"
-                ),
+            embed=dm_embed(
+                "💬 เชื่อมต่อกับลูกค้าแล้ว",
+                [("🎫", "หมายเลข", f"`T#{ticket_id}`"), ("👤", "ลูกค้า", f"<@{ticket['customer_id']}>")],
+                note="พิมพ์ข้อความใน DM นี้เพื่อตอบลูกค้าได้เลยค่ะ",
                 color=COLOR_OK,
             ),
             view=ticket_close_view(ticket_id),
@@ -253,12 +247,10 @@ class TicketsCog(commands.Cog):
             return
 
         await self.db.update_ticket(ticket_id, status="CLOSED", closed_at=to_iso(now_utc()))
-        embed = discord.Embed(
-            title="🔒 ปิดรายการสอบถามแล้ว",
-            description=(
-                f"หมายเลข `T#{ticket_id}`\n{reason}\n\n"
-                "หากต้องการสอบถามเพิ่มเติม กดปุ่ม 💬 สอบถามเจ้าหน้าที่ ที่หน้าแผงบริการได้ใหม่ค่ะ"
-            ),
+        embed = dm_embed(
+            "🔒 ปิดรายการสอบถามแล้ว",
+            [("🎫", "หมายเลข", f"`T#{ticket_id}`"), ("📝", "เหตุผล", reason)],
+            note="สอบถามเพิ่มเติมได้ใหม่ที่ปุ่ม 💬 สอบถามเจ้าหน้าที่ ในแผงบริการค่ะ",
             color=COLOR_DANGER,
         )
         await send_dm(self.bot, ticket["customer_id"], embed=embed)

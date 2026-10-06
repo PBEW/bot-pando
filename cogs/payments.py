@@ -15,6 +15,7 @@ from core.embeds import (
     COLOR_GOLD,
     COLOR_INFO,
     COLOR_OK,
+    dm_embed,
     job_embed,
     payment_embed,
 )
@@ -180,11 +181,10 @@ class PaymentsCog(commands.Cog):
             await send_dm(
                 self.bot,
                 customer_id,
-                embed=discord.Embed(
-                    description=(
-                        f"🧾 ยังมีบิล `#{job['id']}` ยอด **{money(job['total_price'])}** รอชำระอยู่ "
-                        "ส่งภาพสลิปของบิลนี้ใน DM นี้ได้เลยค่ะ"
-                    ),
+                embed=dm_embed(
+                    "🧾 ยังมีบิลรอชำระ",
+                    [("🧾", "บิล", f"`#{job['id']}`"), ("💰", "ยอด", f"**{money(job['total_price'])}**")],
+                    note="ส่งภาพสลิปของบิลนี้ใน DM นี้ได้เลยค่ะ",
                     color=COLOR_INFO,
                 ),
             )
@@ -322,13 +322,12 @@ class PaymentsCog(commands.Cog):
                     )
                     return
                 await self.release_pending_slip(order["customer_id"], "VIP", ref_id)
-                note = discord.Embed(
-                    title="❌ คำสั่งซื้อ VIP ถูกยกเลิก",
-                    description="แอดมินยกเลิกรายการนี้ หากมีข้อสงสัยติดต่อแอดมินได้เลยค่ะ",
+                note = dm_embed(
+                    "❌ คำสั่งซื้อ VIP ถูกยกเลิก",
+                    [("💎", "คำสั่งซื้อ", f"`V#{ref_id}`"), *([("📝", "เหตุผล", reason)] if reason else [])],
+                    note="หากมีข้อสงสัย ติดต่อแอดมินผ่าน 💬 สอบถามเจ้าหน้าที่ได้เลยค่ะ",
                     color=COLOR_DANGER,
                 )
-                if reason:
-                    note.add_field(name="เหตุผล", value=reason, inline=False)
                 await send_dm(self.bot, order["customer_id"], embed=note)
                 reason_suffix = f"\nเหตุผล: {reason}" if reason else ""
                 ok, msg = True, (
@@ -371,11 +370,9 @@ class PaymentsCog(commands.Cog):
         if coins_cog is not None:
             await coins_cog.on_job_paid(job)
 
-        await send_dm(
-            self.bot,
-            job["customer_id"],
-            embed=job_embed(self.cfg, job, title="✅ ชำระเงินสำเร็จ", color=COLOR_OK),
-        )
+        paid_embed = job_embed(self.cfg, job, title="✅ ชำระเงินสำเร็จ — ขอบคุณค่ะ 💜", color=COLOR_OK)
+        paid_embed.set_footer(text="บอทจะแจ้งเตือนก่อนถึงเวลาและก่อนหมดเวลาให้อัตโนมัติ")
+        await send_dm(self.bot, job["customer_id"], embed=paid_embed)
         donate = self.bot.get_cog("DonateCog")
         if job["job_type"] == "DONATE" and donate is not None:
             await donate.on_donation_paid(job)
@@ -383,12 +380,13 @@ class PaymentsCog(commands.Cog):
             await send_dm(
                 self.bot,
                 staff_id,
-                embed=discord.Embed(
-                    title="💰 ลูกค้าชำระเงินแล้ว",
-                    description=(
-                        f"บิล `#{job_id}` ยอด {money(job['total_price'])}\n"
-                        f"ส่วนแบ่งของคุณ: **{money(share)}**"
-                    ),
+                embed=dm_embed(
+                    "💰 ลูกค้าชำระเงินแล้ว",
+                    [
+                        ("🧾", "บิล", f"`#{job_id}`"),
+                        ("💵", "ยอดบิล", money(job["total_price"])),
+                        ("💜", "ส่วนแบ่งของคุณ", f"**{money(share)}**"),
+                    ],
                     color=COLOR_OK,
                 ),
             )
@@ -460,13 +458,12 @@ class PaymentsCog(commands.Cog):
         if not await self.cancel_core(job, ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID", "COMPLETED"]):
             return False, "บิลนี้ถูกยกเลิกไปแล้ว"
 
-        note = discord.Embed(
-            title="❌ บิลถูกยกเลิก",
-            description=f"บิล `#{job_id}` ถูกยกเลิกโดยแอดมิน ยอดเงินจะไม่ถูกบันทึกลงบัญชีค่ะ",
+        note = dm_embed(
+            "❌ บิลถูกยกเลิก",
+            [("🧾", "บิล", f"`#{job_id}`"), *([("📝", "เหตุผล", reason)] if reason else [])],
+            note="แอดมินยกเลิกบิลนี้แล้ว ยอดเงินจะไม่ถูกบันทึกลงบัญชีค่ะ",
             color=COLOR_DANGER,
         )
-        if reason:
-            note.add_field(name="เหตุผล", value=reason, inline=False)
         await send_dm(self.bot, job["customer_id"], embed=note)
         for staff_id in job_staff_ids(job):
             await send_dm(self.bot, staff_id, embed=note)
@@ -506,8 +503,10 @@ class PaymentsCog(commands.Cog):
                 await send_dm(
                     self.bot,
                     sid,
-                    embed=discord.Embed(
-                        description=f"❌ บิล `#{job['id']}` ถูกยกเลิก เพราะมีพนักงานในทีมไม่สะดวกรับงานนี้",
+                    embed=dm_embed(
+                        "❌ บิลถูกยกเลิก",
+                        [("🧾", "บิล", f"`#{job['id']}`")],
+                        note="มีพนักงานในทีมไม่สะดวกรับงานนี้ แอดมินจะเปิดบิลใหม่ให้ถ้าจำเป็นค่ะ",
                         color=COLOR_DANGER,
                     ),
                 )
@@ -650,13 +649,14 @@ class PaymentsCog(commands.Cog):
                     await send_dm(
                         self.bot,
                         job["customer_id"],
-                        embed=discord.Embed(
-                            title="💳 อย่าลืมชำระเงินนะคะ",
-                            description=(
-                                f"บิล `#{jid}` ยอด **{money(job['total_price'])}** ยังรอสลิปอยู่ค่ะ\n"
-                                f"ส่งภาพสลิปใน DM นี้ได้เลย — ถ้าไม่ชำระภายใน **{max(left, 1)} นาที** "
-                                "ระบบจะยกเลิกบิลให้อัตโนมัติ"
-                            ),
+                        embed=dm_embed(
+                            "💳 อย่าลืมชำระเงินนะคะ",
+                            [
+                                ("🧾", "บิล", f"`#{jid}`"),
+                                ("💰", "ยอด", f"**{money(job['total_price'])}**"),
+                                ("⏳", "เหลือเวลา", f"**{max(left, 1)} นาที**"),
+                            ],
+                            note="ส่งภาพสลิปใน DM นี้ได้เลยค่ะ — เลยเวลาแล้วระบบจะยกเลิกบิลให้อัตโนมัติ",
                             color=COLOR_GOLD,
                         ),
                     )

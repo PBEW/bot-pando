@@ -11,7 +11,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN
+from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, dm_embed
 from core.pricing import split_revenue
 from core.utils import from_iso, money, now_utc, send_dm, staff_members, to_iso
 
@@ -238,16 +238,17 @@ class DonateCog(commands.Cog):
 
     async def on_donation_paid(self, job: dict) -> None:
         """เรียกจาก PaymentsCog หลังแอดมินยืนยันสลิปของบิล DONATE"""
-        embed = discord.Embed(
-            title="💜 มีคนโดเนทให้คุณ!",
-            description=(
-                f"<@{job['customer_id']}> โดเนท **{self.cfg.service_names(job['services'])}** "
-                f"ยอด {money(job['total_price'])}\nส่วนแบ่งของคุณ: **{money(job['staff_share'])}**"
-            ),
+        embed = dm_embed(
+            "💜 มีคนโดเนทให้คุณ!",
+            [
+                ("👤", "จาก", f"<@{job['customer_id']}>"),
+                ("🎁", "โดเนท", self.cfg.service_names(job["services"])),
+                ("💵", "ยอด", money(job["total_price"])),
+                ("💜", "ส่วนแบ่งของคุณ", f"**{money(job['staff_share'])}**"),
+            ],
+            note=f"💌 {job['note'][:900]}" if job.get("note") else None,
             color=COLOR_GOLD,
         )
-        if job.get("note"):
-            embed.add_field(name="ข้อความจากลูกค้า", value=job["note"][:1024], inline=False)
         await send_dm(self.bot, job["staff_id"], embed=embed)
 
         channel = self.bot.get_channel(self.cfg.channel_id("announce"))
@@ -278,9 +279,10 @@ class DonateCog(commands.Cog):
             await send_dm(
                 self.bot,
                 job["customer_id"],
-                embed=discord.Embed(
-                    title="⌛ ยกเลิกรายการโดเนทแล้ว",
-                    description=f"โดเนท `#{job['id']}` ไม่ได้ชำระภายใน {self.expire_minutes} นาที ระบบจึงยกเลิกให้ค่ะ",
+                embed=dm_embed(
+                    "⌛ ยกเลิกรายการโดเนทแล้ว",
+                    [("🧾", "โดเนท", f"`#{job['id']}`")],
+                    note=f"ไม่ได้ชำระภายใน {self.expire_minutes} นาที ระบบจึงยกเลิกให้ค่ะ — โดเนทใหม่ได้ทุกเมื่อ 💜",
                     color=COLOR_DANGER,
                 ),
             )

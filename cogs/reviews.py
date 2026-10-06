@@ -8,7 +8,7 @@ import re
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.utils import from_iso, is_admin, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.reviews")
@@ -192,14 +192,15 @@ class ReviewsCog(commands.Cog):
 
     # ------------------------------------------------------- ส่งคำเชิญรีวิว
     async def send_review_invite(self, job: dict) -> None:
-        embed = discord.Embed(
-            title="💖 ขอบคุณที่ใช้บริการค่ะ",
-            description=(
-                f"บิล `#{job['id']}` · {self.cfg.service_names(job['services'])}\n"
-                f"พนักงาน: <@{job['staff_id']}>\n\n"
-                "ช่วยให้คะแนนและเขียนรีวิวสั้นๆ ให้หน่อยนะคะ 🥰\n"
-                f"*เขียนรีวิวได้ภายใน {self.cfg.review_window_hours} ชั่วโมงหลังจบงาน และรีวิวได้ 1 ครั้งต่อ 1 บิล*"
-            ),
+        embed = dm_embed(
+            "💖 ขอบคุณที่ใช้บริการค่ะ",
+            [
+                ("🧾", "บิล", f"`#{job['id']}`"),
+                ("🛎️", "บริการ", self.cfg.service_names(job["services"])),
+                ("💃", "พนักงาน", f"<@{job['staff_id']}>"),
+            ],
+            lead="ช่วยให้คะแนนและเขียนรีวิวสั้นๆ ให้หน่อยนะคะ 🥰",
+            note=f"รีวิวได้ภายใน {self.cfg.review_window_hours} ชั่วโมงหลังจบงาน · 1 บิล รีวิวได้ 1 ครั้ง",
             color=self.cfg.review_color,
         )
         await send_dm(self.bot, job["customer_id"], embed=embed, view=review_invite_view(job["id"]))
@@ -320,9 +321,10 @@ class ReviewsCog(commands.Cog):
         await send_dm(
             self.bot,
             review["customer_id"],
-            embed=discord.Embed(
-                title="💖 รีวิวของคุณถูกเผยแพร่แล้ว",
-                description=f"ขอบคุณสำหรับรีวิวนะคะ ดูได้ที่ {channel.mention}",
+            embed=dm_embed(
+                "💖 รีวิวของคุณถูกเผยแพร่แล้ว",
+                [("📍", "ดูได้ที่", channel.mention)],
+                lead="ขอบคุณสำหรับรีวิวนะคะ 🥰",
                 color=self.cfg.review_color,
             ),
         )

@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN
+from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import apply_discount
 from core.utils import fmt_datetime, from_iso, is_admin, money, now_utc, send_dm, to_iso
 from core.vip_logic import (
@@ -261,6 +261,21 @@ class VipCog(commands.Cog):
         view = VipShopView(self, interaction.user.id)
         await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
 
+    def _welcome_embed(self, title: str, tier_cfg: dict, expires: dt.datetime) -> discord.Embed:
+        embed = dm_embed(
+            title,
+            [
+                ("💎", "ระดับ", f"**{tier_cfg.get('emoji', '')} {tier_cfg['name']}**"),
+                ("📅", "หมดอายุ", f"**{fmt_datetime(expires, self.cfg.tz)}**"),
+            ],
+            note="ใช้บริการครั้งต่อไป บอทให้สิทธิ์ VIP อัตโนมัติ · ดูสิทธิ์ได้ที่ 🔍 ตรวจสอบสิทธิ์ VIP",
+            color=COLOR_OK,
+        )
+        perks = perks_text(self.cfg)
+        if perks:
+            embed.add_field(name="✨ สิทธิ์ของคุณ", value=perks[:1024], inline=False)
+        return embed
+
     async def check_vip(self, interaction: discord.Interaction) -> None:
         if await self._vip_off(interaction):
             return
@@ -439,15 +454,7 @@ class VipCog(commands.Cog):
         await send_dm(
             self.bot,
             order["customer_id"],
-            embed=discord.Embed(
-                title="🎉 ยืนยันสิทธิ์ VIP เรียบร้อย",
-                description=(
-                    f"ระดับ **{tier_cfg.get('emoji', '')} {tier_cfg['name']}**\n"
-                    f"หมดอายุ: **{fmt_datetime(new_expiry_local, self.cfg.tz)}**\n\n"
-                    "ครั้งต่อไปที่ใช้บริการ ระบบจะคิดราคา/สิทธิ์ฟรีตามระดับให้อัตโนมัติค่ะ 💎"
-                ),
-                color=COLOR_OK,
-            ),
+            embed=self._welcome_embed("🎉 ยินดีต้อนรับสู่ VIP!", tier_cfg, new_expiry_local),
         )
 
         await self._check_streak_upgrade(order["guild_id"], order["customer_id"], tier_cfg, new_streak)
@@ -562,13 +569,13 @@ class VipCog(commands.Cog):
         await send_dm(
             self.bot,
             req["user_id"],
-            embed=discord.Embed(
-                title="🎁 อัปเกรด VIP ฟรีเรียบร้อย!",
-                description=(
-                    f"ยินดีด้วยค่ะ คุณสะสมครบ {req['streak_months']} เดือน "
-                    f"ได้รับการอัปเกรดเป็น **{to_tier_cfg['name']}** ฟรี 1 เดือน\n"
-                    f"หมดอายุ: **{fmt_datetime(new_expiry_local, self.cfg.tz)}**"
-                ),
+            embed=dm_embed(
+                "🎁 อัปเกรด VIP ฟรีเรียบร้อย!",
+                [
+                    ("💎", "ระดับใหม่", f"**{to_tier_cfg['name']}** (ฟรี 1 เดือน)"),
+                    ("📅", "หมดอายุ", f"**{fmt_datetime(new_expiry_local, self.cfg.tz)}**"),
+                ],
+                lead=f"ยินดีด้วยค่ะ คุณสะสมครบ {req['streak_months']} เดือน 🎉",
                 color=COLOR_OK,
             ),
         )
@@ -608,9 +615,10 @@ class VipCog(commands.Cog):
         await send_dm(
             self.bot,
             record["user_id"],
-            embed=discord.Embed(
-                title="⌛ สิทธิ์ VIP หมดอายุแล้ว",
-                description="ต่ออายุได้ที่ปุ่ม 💎 ซื้อ VIP/ต่ออายุ ที่หน้าแผงบริการค่ะ",
+            embed=dm_embed(
+                "⌛ สิทธิ์ VIP หมดอายุแล้ว",
+                lead="ขอบคุณที่เป็นสมาชิก VIP กับเรานะคะ 💜",
+                note="ต่ออายุได้ที่ปุ่ม 💎 สมัคร VIP / ต่ออายุ ในแผงบริการค่ะ",
                 color=COLOR_DANGER,
             ),
         )
@@ -666,14 +674,7 @@ class VipCog(commands.Cog):
         await send_dm(
             self.bot,
             member.id,
-            embed=discord.Embed(
-                title="🎉 แอดมินให้สิทธิ์ VIP",
-                description=(
-                    f"ระดับ **{tier_cfg.get('emoji', '')} {tier_cfg['name']}**\n"
-                    f"หมดอายุ: **{fmt_datetime(new_expiry_local, self.cfg.tz)}**"
-                ),
-                color=COLOR_OK,
-            ),
+            embed=self._welcome_embed("🎉 แอดมินให้สิทธิ์ VIP", tier_cfg, new_expiry_local),
         )
         await self._check_streak_upgrade(interaction.guild_id, member.id, tier_cfg, new_streak)
 

@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.cycle import cycle_start_local, cycle_title, next_cutoff_local
-from core.embeds import COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN
+from core.embeds import COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import job_staff_ids, job_staff_split
 from core.utils import (
     discord_ts,
@@ -120,25 +120,29 @@ class SchedulerCog(commands.Cog):
 
     async def _notify_start(self, job: dict, start: dt.datetime) -> None:
         minutes = self.cfg.before_start_minutes
-        staff_embed = discord.Embed(
-            title=f"⏰ อีก {minutes} นาทีจะถึงเวลางาน",
-            description=(
-                f"บิล `#{job['id']}` · ลูกค้า <@{job['customer_id']}>\n"
-                f"บริการ: {self.cfg.service_names(job['services'])}\n"
-                f"ห้อง: {self.cfg.room_name(job.get('room'))}\n"
-                f"เริ่ม {discord_ts(start)} — เตรียมตัวได้เลยค่ะ"
-            ),
+        staff_embed = dm_embed(
+            f"⏰ อีก {minutes} นาทีจะถึงเวลางาน",
+            [
+                ("🧾", "บิล", f"`#{job['id']}`"),
+                ("👤", "ลูกค้า", f"<@{job['customer_id']}>"),
+                ("🛎️", "บริการ", self.cfg.service_names(job["services"])),
+                ("🚪", "ห้อง", self.cfg.room_name(job.get("room"))),
+                ("🟢", "เริ่ม", discord_ts(start)),
+            ],
+            note="เตรียมตัวได้เลยค่ะ 💜",
             color=COLOR_WARN,
         )
         for staff_id in job_staff_ids(job):
             await send_dm(self.bot, staff_id, embed=staff_embed)
-        customer_embed = discord.Embed(
-            title=f"⏰ อีก {minutes} นาทีจะถึงเวลานัด",
-            description=(
-                f"บิล `#{job['id']}` · พนักงาน {' '.join(f'<@{s}>' for s in job_staff_ids(job))}\n"
-                f"ห้อง: {self.cfg.room_name(job.get('room'))}\n"
-                f"เริ่ม {discord_ts(start)} — เตรียมเข้างานได้เลยค่ะ"
-            ),
+        customer_embed = dm_embed(
+            f"⏰ อีก {minutes} นาทีจะถึงเวลานัด",
+            [
+                ("🧾", "บิล", f"`#{job['id']}`"),
+                ("💃", "พนักงาน", " ".join(f"<@{s}>" for s in job_staff_ids(job))),
+                ("🚪", "ห้อง", self.cfg.room_name(job.get("room"))),
+                ("🟢", "เริ่ม", discord_ts(start)),
+            ],
+            note="เตรียมเข้าร้านได้เลยค่ะ 💜",
             color=COLOR_WARN,
         )
         for cid in [job["customer_id"], *(job.get("co_customers") or [])]:
@@ -146,12 +150,10 @@ class SchedulerCog(commands.Cog):
 
     async def _notify_end(self, job: dict, end: dt.datetime) -> None:
         minutes = self.cfg.before_end_minutes
-        embed = discord.Embed(
-            title=f"⌛ อีก {minutes} นาทีจะหมดเวลา",
-            description=(
-                f"บิล `#{job['id']}` จะจบเวลา {discord_ts(end)}\n"
-                "หากต้องการต่อเวลา แจ้งแอดมินเพื่อเปิดบิลต่อเวลาได้เลยค่ะ"
-            ),
+        embed = dm_embed(
+            f"⌛ อีก {minutes} นาทีจะหมดเวลา",
+            [("🧾", "บิล", f"`#{job['id']}`"), ("🔴", "จบเวลา", discord_ts(end))],
+            note="อยากต่อเวลา แจ้งแอดมินเพื่อเปิดบิลต่อเวลาได้เลยค่ะ",
             color=COLOR_WARN,
         )
         for uid in [*job_staff_ids(job), job["customer_id"], *(job.get("co_customers") or [])]:
