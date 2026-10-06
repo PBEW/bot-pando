@@ -77,6 +77,12 @@ class SchedulerCog(commands.Cog):
             await self.db.set_meta(
                 "last_cutoff", cycle_start_local(now_local, self.cfg).date().isoformat()
             )
+        try:
+            removed = await self.bot.get_cog("PaymentsCog").purge_finished_meta()
+            if removed:
+                log.info("ลบข้อมูลแจ้งเตือนเก่าที่ไม่ใช้แล้ว %d แถว", removed)
+        except Exception:  # noqa: BLE001
+            log.exception("เก็บกวาดตาราง meta ไม่สำเร็จ")
         # เปิดบอททุกครั้ง: เติมบิลที่ชำระแล้วแต่ยังไม่ได้ลงชีต
         try:
             await self.bot.get_cog("PaymentsCog").backfill_sheet()
