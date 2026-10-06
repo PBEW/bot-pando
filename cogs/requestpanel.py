@@ -181,6 +181,66 @@ class RequestPanel(discord.ui.View):
         await cog.check_vip(interaction)
 
 
+def _item(title: str, detail: str) -> str:
+    """ปุ่ม 1 รายการ: ชื่อปุ่มตัวหนา + คำอธิบายสั้นบรรทัดถัดไป"""
+    return f"**{title}**\n┗ {detail}"
+
+
+def request_panel_embed(cfg, guild: discord.Guild | None = None) -> discord.Embed:
+    """หน้าตาแผงลูกค้า — แบ่งเป็นหมวดตามแถวปุ่ม อ่านง่ายบนมือถือ"""
+    embed = discord.Embed(
+        title=f"✨ {cfg.shop_name}",
+        description="ยินดีต้อนรับค่ะ 💜\nกดปุ่มด้านล่างได้เลย — บอทจะตอบกลับทาง **DM** ของคุณ",
+        color=COLOR_MAIN,
+    )
+    if guild is not None and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    embed.add_field(
+        name="🛎️ บริการลูกค้า",
+        value="\n".join([
+            _item("💬 สอบถามเจ้าหน้าที่", "คุยกับแอดมินตัวต่อตัว · จองพนักงาน / สั่งบริการ"),
+            _item("📜 เมนู & ราคา", "ดูบริการและราคาทั้งหมดของร้าน"),
+            _item("👥 พนักงานวันนี้", "ใครเข้างาน และรับงานแบบไหนบ้าง"),
+        ]),
+        inline=False,
+    )
+    embed.add_field(
+        name="💜 สนับสนุนพนักงาน",
+        value="\n".join([
+            _item("💜 โดเนทให้พนักงาน", "เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิป"),
+            _item("🏆 Top Donate", "อันดับยอดโดเนทของเดือนนี้"),
+        ]),
+        inline=False,
+    )
+    if coin_enabled(cfg):
+        embed.add_field(
+            name=coin_label(cfg),
+            value=(
+                f"ได้ **1 เหรียญทุก {coin_opt(cfg, 'baht_per_coin')} บาท** สะสมแลกรางวัล\n"
+                "┗ การ์ดแกล้ง 🃏 · ส่วนลด 💸 · สั่ง CEO 👑 · Host Night 🏰\n"
+                "🪙 เหรียญของฉัน · 🎁 แลกรางวัล · 🏅 อันดับนักสะสม"
+            ),
+            inline=False,
+        )
+    if cfg.vip_enabled:
+        pkg = (cfg.vip_packages or [None])[0]
+        name = f"💎 {pkg['name']} · {float(pkg['price']):,.0f} บาท" if pkg else "💎 Pandora VIP"
+        perks = "\n".join(f"✦ {p}" for p in perks_lines(cfg, compact=True))
+        embed.add_field(
+            name=name[:256],
+            value=(
+                (perks + "\n\n" if perks else "")
+                + "💎 **สมัคร / ต่ออายุ** — สมัครเองได้ ชำระผ่าน QR ใน DM\n"
+                "🔍 **ตรวจสอบสิทธิ์** — วันหมดอายุ & Free Date วันนี้"
+            )[:1024],
+            inline=False,
+        )
+    embed.add_field(name="💜 สำคัญ", value=COMFORT_NOTE, inline=False)
+    embed.set_footer(text="📩 กรุณาเปิดรับข้อความ DM จากสมาชิกในเซิร์ฟเวอร์ก่อนใช้งานนะคะ")
+    return embed
+
+
 class RequestPanelCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -195,37 +255,7 @@ class RequestPanelCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:request:")
 
-        lines = [
-            "เลือกรายการที่ต้องการได้เลยค่ะ ระบบจะติดต่อกลับทาง **DM** ของบอท\n",
-            "💬 **สอบถามเจ้าหน้าที่** — คุยกับแอดมินแบบตัวต่อตัวผ่าน DM (จองพนักงาน / สั่งบริการ)",
-            "📜 **เมนู & ราคา** — ดูบริการทั้งหมดของร้าน",
-            "👥 **พนักงานวันนี้** — ดูว่าวันนี้ใครเข้างาน และรับงานแบบไหนบ้าง",
-            "💜 **โดเนทให้พนักงาน** — เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิปได้เอง",
-            "🏆 **Top Donate** — ดูอันดับยอดโดเนทของเดือนนี้",
-        ]
-        if coin_enabled(self.cfg):
-            lines += [
-                f"\n{coin_label(self.cfg)} — ได้ 1 เหรียญทุก {coin_opt(self.cfg, 'baht_per_coin')} บาท "
-                "สะสมแลกรางวัล (การ์ดแกล้ง 🃏, ส่วนลด, สั่ง CEO 👑, Host Night 🏰 ฯลฯ)",
-                "🪙 **เหรียญของฉัน** · 🎁 **แลกรางวัล** · 🏅 **อันดับนักสะสม**",
-            ]
-        if self.cfg.vip_enabled:
-            lines += [
-                "💎 **สมัคร VIP / ต่ออายุ** — สมัครเองได้เลย เลือกแพ็กเกจ ใส่โค้ดส่วนลด แล้วชำระเงินผ่าน QR ใน DM",
-                "🔍 **ตรวจสอบสิทธิ์ VIP** — ดูแพ็กเกจและวันหมดอายุของคุณ",
-            ]
-            pkg = (self.cfg.vip_packages or [None])[0]
-            if pkg:
-                lines.append(f"　💎 **{pkg['name']}** เพียง **{float(pkg['price']):,.0f} บาท** — สิทธิ์:")
-            lines += [f"　• {p}" for p in perks_lines(self.cfg)]
-        lines.append(f"\n> 💜 **สำคัญ:** {COMFORT_NOTE}")
-        lines.append("\n*กรุณาเปิดรับข้อความ DM จากสมาชิกในเซิร์ฟเวอร์ก่อนใช้งานนะคะ*")
-
-        embed = discord.Embed(
-            title=f"✨ {self.cfg.shop_name} · บริการลูกค้า",
-            description="\n".join(lines),
-            color=COLOR_MAIN,
-        )
+        embed = request_panel_embed(self.cfg, interaction.guild)
         await interaction.channel.send(embed=embed, view=RequestPanel(self.cfg.vip_enabled, coin_enabled(self.cfg)))
 
         note = f" (ลบแผงเก่าออก {removed} อัน)" if removed else ""
