@@ -251,13 +251,15 @@ class AttendanceCog(commands.Cog):
         embed = discord.Embed(
             title="✏️ แก้ไขงานที่รับวันนี้" if current else "🟢 เข้างาน — วันนี้รับงานแบบไหน?",
             description=(
-                "1) เลือกงานที่รับวันนี้ (เลือกได้หลายข้อ) — 👥 รับลูกค้าหลายคนในห้อง VIP ต้องติ๊กเองเท่านั้น\n"
-                "2) เลือกคนที่ไม่รับเข้าห้องด้วย (ไม่บังคับ — แอดมินจะเปิดบิลคู่กับคนนี้ไม่ได้)\n"
-                "3) กด **ยืนยันเข้างาน** แล้วพิมพ์ชื่อ/หมายเหตุเพิ่มได้\n\n"
-                "*รายชื่อคนที่ไม่รับ เห็นเฉพาะคุณกับแอดมินเท่านั้น*"
+                "1️⃣ เลือก**งานที่รับวันนี้** (เลือกได้หลายข้อ)\n"
+                "┗ 👥 รับลูกค้าหลายคนในห้อง VIP ต้องติ๊กเองเท่านั้น\n"
+                "2️⃣ เลือก**คนที่ไม่รับ**เข้าห้องด้วย (ไม่บังคับ)\n"
+                "┗ แอดมินจะเปิดบิลคู่กับคนนี้ไม่ได้\n"
+                "3️⃣ กด **ยืนยันเข้างาน** แล้วพิมพ์ชื่อ/หมายเหตุเพิ่มได้"
             ),
             color=COLOR_MAIN,
         )
+        embed.set_author(name="🔒 รายชื่อคนที่ไม่รับ เห็นเฉพาะคุณกับแอดมินเท่านั้น")
         if current:
             embed.set_footer(text="วันนี้คุณเข้างานแล้ว — ยืนยันเพื่ออัปเดตข้อมูล (เวลาเข้างานไม่เปลี่ยน)")
         await interaction.response.send_message(
@@ -288,8 +290,9 @@ class AttendanceCog(commands.Cog):
                 title=f"🟢 บันทึกเข้างานแล้ว {fmt_time(now, self.cfg.tz)} น.",
                 description=(
                     f"{summary}\n\n"
-                    f"บอทตัดยอดให้อัตโนมัติตอน {self.cutoff_label()} · กดผิด กด ↩️ ยกเลิกเข้างานได้\n"
-                    "อยากเปลี่ยนงานที่รับ กด 🟢 เข้างาน อีกครั้งได้เลยค่ะ"
+                    f"> ✂️ บอทตัดยอดให้อัตโนมัติตอน {self.cutoff_label()}\n"
+                    "> ↩️ กดผิด กดยกเลิกเข้างานได้\n"
+                    "> 🟢 อยากเปลี่ยนงานที่รับ กดเข้างานอีกครั้งได้เลยค่ะ"
                 ),
                 color=COLOR_OK,
             ),
@@ -360,21 +363,21 @@ class AttendanceCog(commands.Cog):
         totals = await self.hours_by_user(start_local, end_local)
         embed = discord.Embed(
             title=title,
-            description=f"ช่วง **{fmt_datetime(start_local, self.cfg.tz)}** ถึง **{fmt_datetime(end_local, self.cfg.tz)}**",
+            description=f"📅 **{fmt_datetime(start_local, self.cfg.tz)}** → **{fmt_datetime(end_local, self.cfg.tz)}**",
             color=COLOR_INFO,
         )
         if not totals:
-            embed.add_field(name="ผลรวม", value="ไม่มีบันทึกเข้างานในช่วงนี้", inline=False)
+            embed.add_field(name="📭 ผลรวม", value="ไม่มีบันทึกเข้างานในช่วงนี้", inline=False)
             return embed
 
         guild = self.bot.get_guild(self.cfg.guild_id)
         lines = []
         for user_id, (seconds, count) in sorted(totals.items(), key=lambda kv: kv[1][0], reverse=True):
             name = await display_name(self.bot, guild, user_id)
-            lines.append(f"• **{name}** — {fmt_hours(seconds)} ({int(count)} วัน)")
-        embed.add_field(name="แยกตามพนักงาน", value="\n".join(lines)[:1024], inline=False)
+            lines.append(f"💃 **{name}**\n┗ ⏱️ {fmt_hours(seconds)} · {int(count)} วัน")
+        embed.add_field(name="👥 แยกตามพนักงาน", value="\n".join(lines)[:1024], inline=False)
         embed.add_field(
-            name="รวมทั้งหมด", value=fmt_hours(sum(v[0] for v in totals.values())), inline=False
+            name="🧮 รวมทั้งหมด", value=f"**{fmt_hours(sum(v[0] for v in totals.values()))}**", inline=False
         )
         return embed
 
@@ -386,12 +389,14 @@ class AttendanceCog(commands.Cog):
         totals = await self.hours_by_user(start, now_local, interaction.user.id)
         seconds, count = totals.get(interaction.user.id, [0.0, 0])
 
-        embed = discord.Embed(title="🕒 ชั่วโมงงานของคุณ (รอบปัจจุบัน)", color=COLOR_MAIN)
-        embed.add_field(name="ตั้งแต่", value=fmt_datetime(start, self.cfg.tz), inline=True)
-        embed.add_field(name="รวม", value=f"**{fmt_hours(seconds)}** ({int(count)} วัน)", inline=True)
+        embed = discord.Embed(
+            title="🕒 ชั่วโมงงานของคุณ · รอบปัจจุบัน",
+            description=f"## {fmt_hours(seconds)}\n┗ {int(count)} วัน · ตั้งแต่ {fmt_datetime(start, self.cfg.tz)}",
+            color=COLOR_MAIN,
+        )
         current = await self.db.open_attendance(interaction.user.id)
         embed.add_field(
-            name="สถานะ",
+            name="📌 สถานะวันนี้",
             value=(
                 f"🟢 วันนี้เข้างานแล้ว ({discord_ts(from_iso(current['clock_in']))})"
                 if current
@@ -434,7 +439,7 @@ class AttendanceCog(commands.Cog):
 
         if closed:
             lines = [
-                f"• <@{r['user_id']}> — {fmt_hours((r['close_at'] - from_iso(r['clock_in'])).total_seconds())}"
+                f"💃 <@{r['user_id']}>　⏱️ {fmt_hours((r['close_at'] - from_iso(r['clock_in'])).total_seconds())}"
                 for r in sorted(closed, key=lambda r: r["clock_in"])
             ]
             await self._notify_admin(
@@ -509,10 +514,12 @@ class AttendanceCog(commands.Cog):
             "SELECT * FROM attendance WHERE clock_in >= ? ORDER BY clock_in", (to_iso(start),)
         )
         if not rows:
-            return discord.Embed(description="วันนี้ยังไม่มีพนักงานกดเข้างานค่ะ", color=COLOR_MAIN)
+            return discord.Embed(
+                title="🟢 มาทำงานวันนี้", description="วันนี้ยังไม่มีพนักงานกดเข้างานค่ะ ☕", color=COLOR_MAIN
+            )
         lines = [
-            f"• <@{r['user_id']}> — เข้างาน {discord_ts(from_iso(r['clock_in']))}\n"
-            f"　{format_prefs(self.cfg, load_prefs(r), private=private)}"
+            f"💃 <@{r['user_id']}>　🕒 {discord_ts(from_iso(r['clock_in']))}\n"
+            f"┗ {format_prefs(self.cfg, load_prefs(r), private=private)}"
             for r in rows
         ]
         embed = discord.Embed(

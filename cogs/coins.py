@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core import coins
-from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, COLOR_OK, dm_embed, progress_bar
+from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, COLOR_OK, dm_embed, progress_bar, rows_text
 from core.utils import display_name, from_iso, is_admin, money, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.coins")
@@ -145,14 +145,19 @@ class CoinAdminView(AdminOnly):
         )
         if self.member:
             uid = self.member.id
-            embed.add_field(name=f"👤 {self.member.display_name}", value=(
-                f"คงเหลือ **{await coins.balance(self.cog.db, uid):,}** · สะสมตลอดชีพ {await coins.lifetime(self.cog.db, uid):,}\n"
-                f"คูปองที่ใช้ได้ {len(self.vouchers)} ใบ"
-            ), inline=False)
+            embed.add_field(name=f"👤 {self.member.display_name}", value=rows_text([
+                ("💰", "คงเหลือ", f"**{await coins.balance(self.cog.db, uid):,}** เหรียญ"),
+                ("🏅", "สะสมตลอดชีพ", f"{await coins.lifetime(self.cog.db, uid):,}"),
+                ("🎟️", "คูปองที่ใช้ได้", f"{len(self.vouchers)} ใบ"),
+            ]), inline=False)
             history = await self.cog.db.fetchall("SELECT * FROM coin_ledger WHERE user_id = ? ORDER BY id DESC LIMIT 5", (uid,))
             if history:
                 embed.add_field(
-                    name="ล่าสุด", value="\n".join(f"`{h['delta']:+d}` {h['reason']}" for h in history)[:1024], inline=False
+                    name="🧾 รายการล่าสุด",
+                    value="\n".join(
+                        f"{'🟢' if h['delta'] > 0 else '🔴'} `{h['delta']:+,d}` {h['reason']}" for h in history
+                    )[:1024],
+                    inline=False,
                 )
         else:
             embed.set_footer(text="เลือกลูกค้าด้านล่างเพื่อดูยอด ปรับเหรียญ หรือกดใช้คูปอง")
@@ -944,7 +949,8 @@ class CoinsCog(commands.Cog):
             if channel is not None:
                 await channel.send(
                     embed=discord.Embed(
-                        description=f"📣 ขอบคุณ {user.mention} ที่สนับสนุน {self.cfg.shop_name} เสมอมานะคะ 💜",
+                        title="📣 ขอบคุณจากใจ 💜",
+                        description=f"ขอบคุณ {user.mention} ที่สนับสนุน **{self.cfg.shop_name}** เสมอมานะคะ",
                         color=COLOR_GOLD,
                     )
                 )
@@ -1237,8 +1243,10 @@ class CoinsCog(commands.Cog):
                 await send_dm(
                     self.bot,
                     row["user_id"],
-                    embed=discord.Embed(
-                        description=f"⌛ {coins.label(self.cfg)} {int(row['bal']):,} เหรียญของคุณหมดอายุ เพราะไม่ได้ใช้บริการเกิน {days} วันค่ะ",
+                    embed=dm_embed(
+                        f"⌛ {coins.label(self.cfg)} หมดอายุ",
+                        [("🔴", "หมดอายุ", f"{int(row['bal']):,} เหรียญ")],
+                        note=f"ไม่ได้ใช้บริการเกิน {days} วัน — กลับมาใช้บริการเพื่อเริ่มสะสมใหม่ได้เลยค่ะ 💜",
                         color=COLOR_DANGER,
                     ),
                 )
@@ -1275,9 +1283,9 @@ class CoinsCog(commands.Cog):
             f"`V{v['id']}` {(coins.reward(self.cfg, v['reward_key']) or {}).get('name', v['reward_key'])}" for v in vouchers
         ) or "-"
         embed = discord.Embed(title=f"🪙 {member.display_name}", color=COLOR_MAIN)
-        embed.add_field(name="คงเหลือ", value=f"{bal:,}", inline=True)
-        embed.add_field(name="สะสมตลอดชีพ", value=f"{life:,}", inline=True)
-        embed.add_field(name="คูปองที่ใช้ได้", value=text, inline=False)
+        embed.add_field(name="💰 คงเหลือ", value=f"**{bal:,}**", inline=True)
+        embed.add_field(name="🏅 สะสมตลอดชีพ", value=f"{life:,}", inline=True)
+        embed.add_field(name="🎟️ คูปองที่ใช้ได้", value=text[:1024], inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @coins_group.command(name="event", description="ตั้งตัวคูณเหรียญวันอีเวนต์ (1 = ปกติ, 2 = ได้ 2 เท่า)")
@@ -1301,7 +1309,8 @@ class CoinsCog(commands.Cog):
         if channel is not None and multiplier > 1:
             await channel.send(
                 embed=discord.Embed(
-                    description=f"🎉 วันนี้ได้ {coins.label(self.cfg)} **×{multiplier:g}** ทุกบิล!",
+                    title=f"🎉 อีเวนต์เหรียญ ×{multiplier:g}!",
+                    description=f"วันนี้ใช้บริการได้ {coins.label(self.cfg)} **×{multiplier:g}** ทุกบิล — อย่าพลาดนะคะ 💜",
                     color=COLOR_GOLD,
                 )
             )

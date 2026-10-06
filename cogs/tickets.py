@@ -7,7 +7,7 @@ import re
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed, rows_text
 from core.utils import display_name, is_admin, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.tickets")
@@ -121,11 +121,11 @@ class TicketsCog(commands.Cog):
 
         embed = discord.Embed(
             title="💬 มีรายการสอบถามใหม่",
-            description=(
-                f"หมายเลข `T#{ticket_id}`\n"
-                f"ลูกค้า: {interaction.user.mention} (`{interaction.user}`)\n\n"
-                "กด **รับเรื่อง (Chat)** เพื่อเปิดสะพานแชท DM กับลูกค้า"
-            ),
+            description=rows_text([
+                ("🎫", "หมายเลข", f"`T#{ticket_id}`"),
+                ("👤", "ลูกค้า", f"{interaction.user.mention} (`{interaction.user}`)"),
+            ])
+            + "\n\n> กด **รับเรื่อง (Chat)** เพื่อเปิดสะพานแชท DM กับลูกค้า",
             color=COLOR_WARN,
         )
         if topic:

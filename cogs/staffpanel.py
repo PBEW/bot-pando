@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.cycle import cycle_start_local
-from core.embeds import COLOR_MAIN, COLOR_OK, STATUS_LABEL, panel_embed
+from core.embeds import COLOR_MAIN, COLOR_OK, STATUS_LABEL, panel_embed, rows_text
 from core.pricing import job_staff_ids, job_staff_split
 from core.utils import discord_ts, fmt_datetime, from_iso, is_admin, money, now_utc, purge_old_panels, to_iso
 
@@ -125,9 +125,11 @@ class StaffPanelCog(commands.Cog):
             ]
         )
         embed = discord.Embed(title="💳 บันทึกบัญชีรับเงินแล้ว", color=COLOR_OK)
-        embed.add_field(name="ธนาคาร / ช่องทาง", value=bank, inline=True)
-        embed.add_field(name="เลขบัญชี", value=f"`{cleaned}`", inline=True)
-        embed.add_field(name="ชื่อบัญชี", value=account_name, inline=False)
+        embed.description = rows_text([
+            ("🏦", "ธนาคาร / ช่องทาง", bank),
+            ("🔢", "เลขบัญชี", f"`{cleaned}`"),
+            ("👤", "ชื่อบัญชี", account_name),
+        ])
         embed.set_footer(
             text="ข้อมูลนี้เห็นเฉพาะคุณกับแอดมิน"
             + (" · อัปเดตใน Google Sheets แล้ว" if synced else "")
@@ -155,17 +157,19 @@ class StaffPanelCog(commands.Cog):
         gross = sum(part for _, part, _ in mine)
         share = sum(part_share for _, _, part_share in mine)
 
-        embed = discord.Embed(title="💰 รายได้ของคุณ (รอบปัจจุบัน)", color=COLOR_OK)
-        embed.add_field(name="ตั้งแต่", value=fmt_datetime(start, self.cfg.tz), inline=True)
-        embed.add_field(name="บิลที่ชำระแล้ว", value=f"{len(jobs)} ใบ", inline=True)
-        embed.add_field(name="ยอดบิลรวม", value=money(gross), inline=True)
-        embed.add_field(name="ส่วนแบ่งของคุณ", value=f"**{money(share)}**", inline=False)
+        embed = discord.Embed(
+            title="💰 รายได้ของคุณ · รอบปัจจุบัน",
+            description=f"## {money(share)}\n┗ ส่วนแบ่งของคุณตั้งแต่ {fmt_datetime(start, self.cfg.tz)}",
+            color=COLOR_OK,
+        )
+        embed.add_field(name="🧾 บิลที่ชำระแล้ว", value=f"{len(jobs)} ใบ", inline=True)
+        embed.add_field(name="💵 ยอดบิลรวม", value=money(gross), inline=True)
         if jobs:
             lines = [
-                f"`#{j['id']}` {self.cfg.service_names(j['services'])} · แบ่ง {money(part_share)}"
+                f"`#{j['id']}` {self.cfg.service_names(j['services'])}\n┗ แบ่ง **{money(part_share)}**"
                 for j, _, part_share in mine[-10:]
             ]
-            embed.add_field(name="บิลล่าสุด (สูงสุด 10 ใบ)", value="\n".join(lines)[:1024], inline=False)
+            embed.add_field(name="🕒 บิลล่าสุด (สูงสุด 10 ใบ)", value="\n".join(lines)[:1024], inline=False)
         embed.set_footer(text="นับเฉพาะบิลที่ชำระแล้ว · ยอดสุดท้ายยึดตามสรุปตัดรอบของแอดมิน")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -178,17 +182,17 @@ class StaffPanelCog(commands.Cog):
             for j in await self.db.active_jobs()
             if interaction.user.id in job_staff_ids(j) and from_iso(j["end_time"]) > now
         ]
-        embed = discord.Embed(title="📋 งานของคุณที่ยังไม่จบ", color=COLOR_MAIN)
+        embed = discord.Embed(title=f"📋 งานของคุณที่ยังไม่จบ ({len(jobs)})", color=COLOR_MAIN)
         if not jobs:
-            embed.description = "ตอนนี้ไม่มีงานค้างค่ะ"
+            embed.description = "ตอนนี้ไม่มีงานค้างค่ะ ☕"
         else:
             lines = []
             for j in sorted(jobs, key=lambda j: j["start_time"])[:15]:
                 start, end = from_iso(j["start_time"]), from_iso(j["end_time"])
                 lines.append(
-                    f"`#{j['id']}` <@{j['customer_id']}> · {self.cfg.service_names(j['services'])}\n"
-                    f"　{discord_ts(start)}–{discord_ts(end)} · ห้อง {self.cfg.room_name(j.get('room'))} · "
-                    f"{STATUS_LABEL.get(j['status'], j['status'])}"
+                    f"🧾 **#{j['id']}** · {STATUS_LABEL.get(j['status'], j['status'])}\n"
+                    f"┗ 👤 <@{j['customer_id']}> · 🛎️ {self.cfg.service_names(j['services'])}\n"
+                    f"┗ 🕒 {discord_ts(start)}–{discord_ts(end)} · 🚪 {self.cfg.room_name(j.get('room'))}"
                 )
             embed.description = "\n".join(lines)[:4000]
         await interaction.response.send_message(embed=embed, ephemeral=True)

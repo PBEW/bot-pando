@@ -63,7 +63,7 @@ class DailyCheckCog(commands.Cog):
         date_text = dt.date.fromisoformat(day).strftime("%d/%m/%Y")
         embed = discord.Embed(
             title=f"📋 เช็คชื่อพนักงาน · {date_text}",
-            description="กดปุ่มด้านล่างเพื่อเช็คชื่อวันนี้ได้เลยค่ะ (เปลี่ยนใจกดอีกปุ่มได้)",
+            description="กดปุ่มด้านล่างเพื่อเช็คชื่อวันนี้ได้เลยค่ะ\n┗ เปลี่ยนใจ กดอีกปุ่มได้",
             color=COLOR_MAIN,
         )
         embed.add_field(name=f"✅ มาทำงาน ({len(came)})", value=lines(came), inline=False)

@@ -12,7 +12,7 @@ import time
 import discord
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK
+from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_MAIN, COLOR_OK, panel_embed, rows_text
 from core.utils import is_admin
 
 log = logging.getLogger("olp.settings")
@@ -117,20 +117,29 @@ class SettingsHome(AdminView):
 
     @staticmethod
     def embed(cfg) -> discord.Embed:
-        return discord.Embed(
-            title="⚙️ ตั้งค่าร้าน",
-            description=(
-                "เลือกหมวดที่ต้องการแก้ไข — บันทึกลง `config.json` และใช้ได้ทันที ไม่ต้องรีสตาร์ต\n\n"
-                f"🚪 **ห้อง** — {len(cfg.rooms)} ห้อง\n"
-                f"🛎️ **บริการ & ราคา** — {len([s for s in cfg.services if not s.get('hidden')])} รายการ\n"
-                f"💰 **ส่วนแบ่งพนักงาน** — ค่าเริ่มต้น {cfg.get('revenue_share.default_staff_percent', 60)}%\n"
-                "💳 **การชำระเงิน** — พร้อมเพย์ / QR\n"
-                "🔧 **อื่นๆ** — โดเนท, Top Donate, บิลค้าง, เวลาตัดยอด\n"
-                f"💎 **VIP** — {'🟢 เปิด' if cfg.vip_enabled else '⚪ ปิด'} · ราคา/อายุแพ็กเกจ, Role, สิทธิ์\n"
-                f"🔑 **Role รีเซปชั่น** — {len(cfg.reception_role_ids)} Role · ใช้แผง /panel reception ได้โดยไม่ต้องเป็นแอดมิน\n\n"
-                "*ทุกการแก้ไขจะแจ้งเข้าห้องแอดมิน · เพิ่ม/ลบบริการแล้ว แผงเปิดบิลจะอัปเดตเองตอนกดครั้งถัดไป*"
-            ),
-            color=COLOR_MAIN,
+        services = len([s for s in cfg.services if not s.get("hidden")])
+        return panel_embed(
+            "⚙️ ตั้งค่าร้าน",
+            "เลือกหมวดจากเมนูด้านล่าง — บันทึกลง `config.json` และใช้ได้ทันที ไม่ต้องรีสตาร์ต",
+            [
+                ("🏪 ร้าน & บริการ", [
+                    (f"🚪 ห้อง · {len(cfg.rooms)} ห้อง", "ชื่อห้อง และบริการที่ใช้ห้องได้"),
+                    (f"🛎️ บริการ & ราคา · {services} รายการ", "ราคา · เวลา · หลายพนักงาน/ลูกค้า · หมวดงาน"),
+                    (
+                        f"💰 ส่วนแบ่งพนักงาน · {cfg.get('revenue_share.default_staff_percent', 60)}%",
+                        "ค่าเริ่มต้น และตั้งรายคน",
+                    ),
+                ]),
+                ("💳 เงิน & ระบบ", [
+                    ("💳 การชำระเงิน", "พร้อมเพย์ · ชื่อบัญชี · รูป QR"),
+                    ("🔧 อื่นๆ", "โดเนท · Top Donate · บิลค้าง · เวลาตัดยอด"),
+                ]),
+                ("👥 สมาชิก & สิทธิ์", [
+                    (f"💎 VIP · {'🟢 เปิด' if cfg.vip_enabled else '⚪ ปิด'}", "ราคา/อายุแพ็กเกจ · Role · สิทธิ์"),
+                    (f"🔑 Role รีเซปชั่น · {len(cfg.reception_role_ids)} Role", "ใช้แผง /panel reception ได้โดยไม่ต้องเป็นแอดมิน"),
+                ]),
+            ],
+            footer="ทุกการแก้ไขแจ้งเข้าห้องแอดมิน · เพิ่ม/ลบบริการแล้ว เมนูเปิดบิลอัปเดตเองตอนกดครั้งถัดไป",
         )
 
     @discord.ui.select(
@@ -211,14 +220,14 @@ class RoomsView(AdminView):
         return next((r for r in self.cfg.rooms if r["key"] == self.room_key), None)
 
     def embed(self) -> discord.Embed:
-        embed = discord.Embed(title="🚪 ตั้งค่าห้อง", color=COLOR_MAIN)
+        embed = discord.Embed(title=f"🚪 ตั้งค่าห้อง · {len(self.cfg.rooms)} ห้อง", color=COLOR_MAIN)
         lines = []
         for r in self.cfg.rooms:
             used = ", ".join(self.cfg.service_name(k) for k in r.get("services") or []) or "ทุกบริการที่ต้องใช้ห้อง"
-            mark = "▶️ " if r["key"] == self.room_key else "• "
-            lines.append(f"{mark}**{r['name']}** — {used}")
-        embed.description = "\n".join(lines) or "*ยังไม่มีห้อง*"
-        embed.set_footer(text="เลือกห้อง → แก้ชื่อ / เลือกบริการที่ใช้ได้ / ลบ · หรือกด ➕ เพิ่มห้อง")
+            mark = "▶️" if r["key"] == self.room_key else "🚪"
+            lines.append(f"{mark} **{r['name']}**\n┗ {used}")
+        embed.description = "\n".join(lines)[:4000] or "*ยังไม่มีห้อง — กด ➕ เพิ่มห้อง*"
+        embed.set_footer(text="เลือกห้อง → ✏️ แก้ชื่อ / เลือกบริการที่ใช้ได้ / 🗑️ ลบ · หรือกด ➕ เพิ่มห้อง")
         return embed
 
     async def _rerender(self, interaction: discord.Interaction) -> None:
@@ -379,24 +388,25 @@ class ServicesView(AdminView):
     def embed(self) -> discord.Embed:
         svc = self._svc()
         if svc is None:
-            embed = discord.Embed(title="🛎️ บริการ & ราคา", color=COLOR_MAIN)
+            visible = [s for s in self.cfg.services if not s.get("hidden")]
+            embed = discord.Embed(title=f"🛎️ บริการ & ราคา · {len(visible)} รายการ", color=COLOR_MAIN)
             embed.description = "\n".join(
-                f"{s.get('emoji', '')} **{s['name']}** — {service_line(self.cfg, s)}"
-                for s in self.cfg.services
-                if not s.get("hidden")
-            )[:4000] or "*ยังไม่มีบริการ*"
+                f"{s.get('emoji', '') or '•'} **{s['name']}**\n┗ {service_line(self.cfg, s)}" for s in visible
+            )[:4000] or "*ยังไม่มีบริการ — กด ➕ เพิ่มบริการ*"
             embed.set_footer(text="เลือกบริการเพื่อแก้ไข/ลบ · หรือกด ➕ เพิ่มบริการ")
             return embed
 
         embed = discord.Embed(title=f"{svc.get('emoji', '')} {svc['name']}", color=COLOR_MAIN)
-        embed.add_field(name="ราคา / ส่วนแบ่ง", value=service_line(self.cfg, svc), inline=False)
-        embed.add_field(name="ประเภท", value=SERVICE_TYPES[service_type(svc)][0], inline=True)
+        embed.add_field(name="💰 ราคา / ส่วนแบ่ง", value=service_line(self.cfg, svc), inline=False)
+        embed.add_field(name="🏷️ ประเภท", value=SERVICE_TYPES[service_type(svc)][0], inline=True)
         cat = svc.get("category")
         cat_label = next((o["label"] for o in self.cfg.get("attendance.accept_options") or [] if o["key"] == cat), "ไม่ระบุ")
-        embed.add_field(name="หมวดงาน", value=cat_label, inline=True)
+        embed.add_field(name="📂 หมวดงาน", value=cat_label, inline=True)
+        if svc.get("vip_only"):
+            embed.add_field(name="💎 เฉพาะ VIP", value="ใช้ได้เฉพาะสมาชิก VIP", inline=True)
         if svc.get("multi_staff"):
             embed.add_field(
-                name="หลายพนักงาน",
+                name="👥 หลายพนักงาน",
                 value=(
                     f"รวม {svc.get('included_staff', 1)} คน · เพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท "
                     f"(พนักงานได้ {svc.get('extra_staff_percent', 100):g}%) · สูงสุด {svc.get('max_staff', 10)} คน"
@@ -405,7 +415,7 @@ class ServicesView(AdminView):
             )
         if int(svc.get("max_customers", 1)) > 1:
             embed.add_field(
-                name="ลูกค้าหลายคน",
+                name="👫 ลูกค้าหลายคน",
                 value=(
                     f"สูงสุด {svc['max_customers']} คน · เพิ่มคนละ {svc.get('extra_customer_price', 0):,.0f} บาท "
                     f"(พนักงานได้ {svc.get('extra_customer_percent', 100):g}%)"
@@ -414,8 +424,8 @@ class ServicesView(AdminView):
                 inline=False,
             )
         if svc.get("description"):
-            embed.add_field(name="คำอธิบาย (แสดงในเมนูลูกค้า)", value=svc["description"][:1024], inline=False)
-        embed.set_footer(text=f"รหัส: {svc['key']}")
+            embed.add_field(name="📝 คำอธิบาย (แสดงในเมนูลูกค้า)", value=svc["description"][:1024], inline=False)
+        embed.set_footer(text=f"รหัส: {svc['key']} · ✏️ แก้ / 🗑️ ลบ ด้วยปุ่มด้านล่าง")
         return embed
 
     async def _rerender(self, interaction: discord.Interaction, key: str | None = None) -> None:
@@ -737,7 +747,11 @@ class AddServiceView(AdminView):
     def embed() -> discord.Embed:
         return discord.Embed(
             title="➕ เพิ่มบริการใหม่",
-            description="1) เลือกประเภท  2) เลือกหมวดงาน (ไม่บังคับ)  3) กด **กรอกรายละเอียด**",
+            description=(
+                "1️⃣ เลือก**ประเภท**บริการ\n"
+                "2️⃣ เลือก**หมวดงาน** (ไม่บังคับ — ใช้จับคู่กับงานที่พนักงานรับตอนเข้างาน)\n"
+                "3️⃣ กด 📝 **กรอกรายละเอียด** (ชื่อ · ราคา · เวลา · ส่วนแบ่ง)"
+            ),
             color=COLOR_MAIN,
         )
 
@@ -771,7 +785,7 @@ class ShareView(AdminView):
         share = self.cfg.get("revenue_share", {}) or {}
         embed = discord.Embed(title="💰 ส่วนแบ่งพนักงาน", color=COLOR_MAIN)
         embed.add_field(
-            name="ค่าเริ่มต้น",
+            name="⭐ ค่าเริ่มต้น",
             value=f"**{share.get('default_staff_percent', 60)}%** (ใช้กับบริการที่ไม่ได้ตั้ง % เอง)",
             inline=False,
         )
@@ -780,10 +794,10 @@ class ShareView(AdminView):
             for s in self.cfg.services
             if s.get("staff_percent") is not None and not s.get("hidden")
         ]
-        embed.add_field(name="บริการที่ตั้ง % เอง", value="\n".join(fixed)[:1024] or "-", inline=False)
+        embed.add_field(name="🛎️ บริการที่ตั้ง % เอง", value="\n".join(fixed)[:1024] or "-", inline=False)
         per = share.get("staff_percent") or {}
         embed.add_field(
-            name="ตั้งรายคน (ใช้กับบริการที่ไม่ได้ตั้ง % เอง)",
+            name="👤 ตั้งรายคน (ใช้กับบริการที่ไม่ได้ตั้ง % เอง)",
             value="\n".join(f"<@{uid}> — {pct}%" for uid, pct in per.items())[:1024] or "-",
             inline=False,
         )
@@ -988,21 +1002,27 @@ class VipSettingsView(AdminView):
         stack = vip_benefit(cfg, "stack_services") or []
         embed = discord.Embed(
             title="💎 ตั้งค่า VIP",
-            description=(
-                f"สถานะ: **{'🟢 เปิดใช้งาน' if cfg.vip_enabled else '⚪ ปิดอยู่'}**\n"
-                f"แพ็กเกจ: **{pkg.get('name', '-')}** — {pkg.get('price', 0):,.0f} บาท / {pkg.get('months', '-')} เดือน\n"
-                f"Role VIP: {f'<@&{role_id}>' if role_id else '⚠️ ยังไม่ตั้ง (ใส่ Role ID ที่ปุ่ม ✏️)'}\n"
-                "เพิ่มเวลาห้อง: "
-                + (", ".join(f"{cfg.service_name(k)} +{m} นาที" + (" (ซ้อนได้)" if k in stack else "") for k, m in bonus.items()) or "-")
-                + f"\nFree Date: วันละ {vip_benefit(cfg, 'free_date_per_day')} ครั้ง"
-                + "\n\n*เปิดระบบครั้งแรก บอทเติมแพ็กเกจ Pandora VIP 6 เดือน 365 บาท + บริการ VIP Free Date ให้อัตโนมัติ "
-                "แล้วกด `/panel_request` ใหม่เพื่อให้ปุ่ม VIP ขึ้นในแผงลูกค้า*"
-            ),
-            color=COLOR_MAIN,
+            description=rows_text([
+                ("🔌", "สถานะ", "🟢 เปิดใช้งาน" if cfg.vip_enabled else "⚪ ปิดอยู่"),
+                ("📦", "แพ็กเกจ", f"{pkg.get('name', '-')} · {pkg.get('price', 0):,.0f} บาท / {pkg.get('months', '-')} เดือน"),
+                ("🏷️", "Role VIP", f"<@&{role_id}>" if role_id else "⚠️ ยังไม่ตั้ง (ใส่ Role ID ที่ปุ่ม ✏️)"),
+                (
+                    "⏱️",
+                    "เพิ่มเวลาห้อง",
+                    ", ".join(
+                        f"{cfg.service_name(k)} +{m}" + (" (ซ้อนได้)" if k in stack else "") for k, m in bonus.items()
+                    ) or "-",
+                ),
+                ("💎", "Free Date", f"วันละ {vip_benefit(cfg, 'free_date_per_day')} ครั้ง"),
+            ]),
+            color=COLOR_GOLD if cfg.vip_enabled else COLOR_MAIN,
+        )
+        embed.set_footer(
+            text="เปิดครั้งแรก บอทเติมแพ็กเกจ 6 เดือน 365 บาท + VIP Free Date ให้เอง · แล้วโพสต์ /panel_request ใหม่"
         )
         perks = perks_text(cfg)
         if perks:
-            embed.add_field(name="สิทธิ์ที่แสดงให้ลูกค้าเห็น", value=perks[:1024], inline=False)
+            embed.add_field(name="✨ สิทธิ์ที่แสดงให้ลูกค้าเห็น", value=perks[:1024], inline=False)
         return embed
 
     @discord.ui.button(label="เปิดระบบ VIP", emoji="🔌", row=0)

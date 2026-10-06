@@ -148,12 +148,13 @@ class DonateCog(commands.Cog):
         embed = discord.Embed(
             title="💜 โดเนทให้พนักงาน",
             description=(
-                "1) เลือกพนักงาน\n2) เลือกประเภท — โดเนทเงิน หรือ Drink Friend\n"
-                "3) กด **ถัดไป** ใส่ยอด แล้วรับ QR ชำระเงินทาง DM\n\n"
-                "ยอดโดเนทนับรวมใน 🏆 **Top Donate** ของเดือนนี้ด้วยนะคะ"
+                "1️⃣ เลือก**พนักงาน**\n"
+                "2️⃣ เลือก**ประเภท** — โดเนทเงิน 💵 หรือ Drink Friend 🥃\n"
+                "3️⃣ กด **ถัดไป** ใส่ยอด แล้วรับ QR ชำระเงินทาง DM"
             ),
             color=COLOR_MAIN,
         )
+        embed.set_footer(text="🏆 ยอดโดเนทนับรวมใน Top Donate ของเดือนนี้ด้วยนะคะ")
         await interaction.response.send_message(embed=embed, view=DonateView(self, interaction.user, staff), ephemeral=True)
 
     async def _pending_donation(self, customer_id: int) -> dict | None:
@@ -255,9 +256,10 @@ class DonateCog(commands.Cog):
         if channel is not None and self.cfg.get("donate.announce", True):
             await channel.send(
                 embed=discord.Embed(
+                    title="💜 ขอบคุณสำหรับโดเนทค่ะ!",
                     description=(
-                        f"💜 <@{job['customer_id']}> โดเนทให้ <@{job['staff_id']}> "
-                        f"**{money(job['total_price'])}** ({self.cfg.service_names(job['services'])}) ขอบคุณค่ะ!"
+                        f"<@{job['customer_id']}> ➜ <@{job['staff_id']}>\n"
+                        f"┗ 🎁 {self.cfg.service_names(job['services'])} · **{money(job['total_price'])}**"
                     ),
                     color=COLOR_GOLD,
                 ),
