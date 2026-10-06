@@ -45,22 +45,27 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------- main loop
     @tasks.loop(seconds=35)
     async def tick(self) -> None:
-        try:
-            await self.check_jobs()
-            await self.check_tickets()
-            if self.cfg.vip_enabled:
-                await self.check_vip_expiry()
-            await self.check_cutoff()
-            await self.check_top_donate()
-            donate = self.bot.get_cog("DonateCog")
-            if donate is not None:
-                await donate.expire_unpaid()
-            await self.bot.get_cog("PaymentsCog").check_stale_bills()
-            coins_cog = self.bot.get_cog("CoinsCog")
-            if coins_cog is not None:
-                await coins_cog.maintenance()
-        except Exception:  # noqa: BLE001 - ลูปต้องไม่ตาย
-            log.exception("เกิดข้อผิดพลาดใน background loop")
+        donate = self.bot.get_cog("DonateCog")
+        payments = self.bot.get_cog("PaymentsCog")
+        coins_cog = self.bot.get_cog("CoinsCog")
+        steps = [
+            ("แจ้งเตือนเวลางาน", self.check_jobs),
+            ("ตั๋วสอบถาม", self.check_tickets),
+            ("VIP หมดอายุ", self.check_vip_expiry if self.cfg.vip_enabled else None),
+            ("ตัดรอบ", self.check_cutoff),
+            ("Top Donate", self.check_top_donate),
+            ("โดเนทค้างจ่าย", donate.expire_unpaid if donate is not None else None),
+            ("บิลค้าง", payments.check_stale_bills if payments is not None else None),
+            ("ดูแลเหรียญ", coins_cog.maintenance if coins_cog is not None else None),
+        ]
+        # แยก try ทีละขั้น — ขั้นไหนพังจะไม่ทำให้ขั้นที่เหลือหยุดทำงานไปด้วย
+        for name, step in steps:
+            if step is None:
+                continue
+            try:
+                await step()
+            except Exception:  # noqa: BLE001 - ลูปต้องไม่ตาย
+                log.exception("เกิดข้อผิดพลาดใน background loop (%s)", name)
 
     @tick.before_loop
     async def before_tick(self) -> None:
@@ -86,15 +91,18 @@ class SchedulerCog(commands.Cog):
 
         for job in await self.db.jobs_by_status(RUNNING_STATUSES):
             start, end = from_iso(job["start_time"]), from_iso(job["end_time"])
+            # บิลต่อเวลาใช้เวลาจบเดียวกับบิลแม่ (บิลแม่แจ้งเตือนอยู่แล้ว) — ไม่ส่ง DM ซ้ำ
+            silent = job["job_type"] == "EXTEND"
 
             if not job["notified_start"] and now >= start - before_start:
                 await self.db.update_job(job["id"], notified_start=1)
-                if now < end:
+                if now < end and not silent:
                     await self._notify_start(job, start)
 
             if not job["notified_end"] and now >= end - before_end:
                 await self.db.update_job(job["id"], notified_end=1)
-                await self._notify_end(job, end)
+                if not silent:
+                    await self._notify_end(job, end)
 
             if now >= end and not job["review_sent"]:
                 await self.db.update_job(job["id"], review_sent=1)

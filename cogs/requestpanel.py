@@ -232,5 +232,7 @@ class RequestPanelCog(commands.Cog):
 
 
 async def setup(bot: commands.Bot) -> None:
-    bot.add_view(RequestPanel(bot.cfg.vip_enabled, coin_enabled(bot.cfg)))
+    # ลงทะเบียนปุ่มเหรียญเสมอ — เปิด/ปิดระบบเหรียญระหว่างบอทรันอยู่ ปุ่มในแผงที่โพสต์ใหม่ก็ยังกดได้
+    # (ตอนระบบปิด ปุ่มเหรียญจะตอบว่าปิดใช้งานเอง)
+    bot.add_view(RequestPanel(bot.cfg.vip_enabled, coins_enabled=True))
     await bot.add_cog(RequestPanelCog(bot))

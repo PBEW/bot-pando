@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -29,8 +30,14 @@ class Config:
             self.data: dict[str, Any] = json.load(fp)
 
     def save(self) -> None:
-        with self.path.open("w", encoding="utf-8") as fp:
-            json.dump(self.data, fp, ensure_ascii=False, indent=2)
+        # เขียนลงไฟล์ชั่วคราวก่อนแล้วค่อยสลับแทนไฟล์จริง — บอทดับกลางคันไฟล์ config เดิมจะไม่เสีย
+        text = json.dumps(self.data, ensure_ascii=False, indent=2)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fp:
+            fp.write(text)
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.replace(tmp, self.path)
 
     def get(self, dotted: str, default: Any = None) -> Any:
         node: Any = self.data

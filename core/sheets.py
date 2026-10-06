@@ -430,7 +430,15 @@ class SheetsClient:
             return ws
 
     def _append_attendance_sync(self, row: list) -> None:
-        self._attendance_ws().append_row(row, value_input_option="USER_ENTERED", table_range="A1")
+        """เขียนกะลงชีต — ถ้ากะนี้ (คอลัมน์ A = เลขกะ) เคยลงแล้วให้แก้แถวเดิม ไม่เพิ่มแถวซ้ำ (เช่น แอดมินแก้เวลา)"""
+        ws = self._attendance_ws()
+        ids = ws.col_values(1)
+        key = str(row[0])
+        if key in ids[1:]:
+            line = ids.index(key, 1) + 1
+            ws.update(values=[row], range_name=f"A{line}:H{line}", value_input_option="USER_ENTERED")
+        else:
+            ws.append_row(row, value_input_option="USER_ENTERED", table_range="A1")
 
     async def create_cycle_sheet(self, title: str) -> bool:
         if not self.ready:

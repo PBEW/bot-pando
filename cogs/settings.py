@@ -471,22 +471,34 @@ class ServicesView(AdminView):
             await interaction.response.send_message("เลือกบริการก่อนค่ะ", ephemeral=True)
             return
         used_by = [s["name"] for s in self.cfg.services if svc["key"] in (s.get("addon_for") or {})]
+        # บริการเสริมที่มีบริการหลักนี้เป็นตัวเดียว ต้องลบตามไปด้วย ไม่งั้นจะกลายเป็นบริการเดี่ยวที่เปิดบิลได้เอง
+        orphans = [
+            s for s in self.cfg.services
+            if s.get("addon_for") and set(s["addon_for"]) <= {svc["key"]} and s["key"] != svc["key"]
+        ]
 
         async def do_delete(i: discord.Interaction) -> None:
-            self.cfg.data["services"] = [s for s in self.cfg.services if s["key"] != svc["key"]]
+            removed = {svc["key"], *(o["key"] for o in orphans)}
+            self.cfg.data["services"] = [s for s in self.cfg.services if s["key"] not in removed]
             for s in self.cfg.services:  # ถอดออกจากบริการเสริมและห้องที่อ้างถึง
-                (s.get("addon_for") or {}).pop(svc["key"], None)
+                for key in removed:
+                    (s.get("addon_for") or {}).pop(key, None)
             for r in self.cfg.rooms:
-                if svc["key"] in (r.get("services") or []):
-                    r["services"].remove(svc["key"])
+                if r.get("services"):
+                    r["services"] = [k for k in r["services"] if k not in removed]
             _save(i)
-            await log_change(i.client, i.user, f"ลบบริการ **{svc['name']}**")
+            extra = f" (และบริการเสริม {', '.join(o['name'] for o in orphans)})" if orphans else ""
+            await log_change(i.client, i.user, f"ลบบริการ **{svc['name']}**{extra}")
             view = ServicesView(self.cfg)
             await i.response.edit_message(embed=view.embed(), view=view)
 
         note = "บิลเก่ายังอยู่ แต่จะแสดงเป็นรหัสบริการแทนชื่อ"
         if used_by:
             note += f"\n⚠️ บริการเสริมที่ใช้คู่กับบริการนี้จะถูกถอดออกด้วย: {', '.join(used_by)}"
+        if orphans:
+            note += (
+                f"\n⚠️ บริการเสริมที่ใช้ได้กับบริการนี้อย่างเดียวจะถูก**ลบ**ด้วย: {', '.join(o['name'] for o in orphans)}"
+            )
         await interaction.response.edit_message(
             embed=discord.Embed(title=f"🗑️ ลบบริการ {svc['name']}?", description=note, color=COLOR_DANGER),
             view=ConfirmView(do_delete, back=lambda: ServicesView(self.cfg, self.service_key)),
