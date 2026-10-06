@@ -8,7 +8,7 @@ import discord
 from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed, rows_text
-from core.utils import display_name, is_admin, now_utc, send_dm, to_iso
+from core.utils import display_name, is_reception, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.tickets")
 
@@ -141,8 +141,9 @@ class TicketsCog(commands.Cog):
 
     # ------------------------------------------------------------ รับเรื่อง
     async def accept_ticket(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        if not is_admin(interaction.user, self.cfg.admin_role_id):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        # แอดมิน หรือ Role รีเซปชั่น รับเรื่องลูกค้าได้
+        if not is_reception(interaction.user, self.cfg):
+            await interaction.response.send_message("เฉพาะแอดมิน / รีเซปชั่นเท่านั้นค่ะ", ephemeral=True)
             return
 
         ticket = await self.db.get_ticket(ticket_id)
