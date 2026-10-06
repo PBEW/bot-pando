@@ -284,10 +284,13 @@ class DonateCog(commands.Cog):
                 continue
             if now - from_iso(job["created_at"]) < limit:
                 continue
-            await self.db.update_job(job["id"], status="CANCELLED", cancelled_at=to_iso(now))
-            pending = await self.db.get_pending_slip(job["customer_id"])
-            if pending and pending["kind"] == "JOB" and pending["ref_id"] == job["id"]:
-                await self.db.clear_pending_slip(job["customer_id"])
+            if not await self.db.claim_job(job["id"], ["ACCEPTED"], status="CANCELLED", cancelled_at=to_iso(now)):
+                continue
+            payments = self.bot.get_cog("PaymentsCog")
+            if payments is not None:
+                await payments.release_pending_slip(job["customer_id"], "JOB", job["id"])
+            else:
+                await self.db.clear_pending_slip(job["customer_id"], "JOB", job["id"])
             await send_dm(
                 self.bot,
                 job["customer_id"],

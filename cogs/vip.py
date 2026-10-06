@@ -329,6 +329,8 @@ class VipCog(commands.Cog):
             return False, "ไม่พบคำสั่งซื้อนี้"
         if order["status"] == "ACTIVE":
             return False, "คำสั่งซื้อนี้ถูกยืนยันไปแล้ว"
+        if order["status"] not in ("AWAITING_PAYMENT", "SLIP_PENDING"):
+            return False, "คำสั่งซื้อนี้ถูกยกเลิกไปแล้ว ยืนยันไม่ได้"
 
         pkg = self.cfg.vip_package(order["package_key"])
         if pkg is None:
@@ -336,6 +338,12 @@ class VipCog(commands.Cog):
         if self.cfg.vip_tier(pkg["tier"]) is None:
             return False, f"ไม่พบระดับ VIP `{pkg['tier']}` ใน config"
 
+        # ล็อกคำสั่งซื้อก่อนให้สิทธิ์ — กดยืนยันซ้ำ/กดยืนยันพร้อมยกเลิก จะผ่านได้ครั้งเดียว
+        if not await self.db.execute_count(
+            "UPDATE vip_orders SET status = 'ACTIVATING' WHERE id = ? AND status IN ('AWAITING_PAYMENT', 'SLIP_PENDING')",
+            (order_id,),
+        ):
+            return False, "คำสั่งซื้อนี้ถูกดำเนินการไปแล้ว"
         try:
             new_expiry_local, new_streak, role_note, tier_cfg = await self._apply_grant(
                 guild_id=order["guild_id"],
@@ -345,13 +353,20 @@ class VipCog(commands.Cog):
                 months=int(pkg["months"]),
                 package_key=order["package_key"],
             )
-        except ValueError as exc:
-            return False, str(exc)
+        except Exception as exc:
+            await self.db.update_vip_order(order_id, status=order["status"])  # ปลดล็อกให้ลองใหม่ได้
+            if isinstance(exc, ValueError):
+                return False, str(exc)
+            raise
 
         now_iso = to_iso(now_utc())
         expires_iso = to_iso(new_expiry_local)
         await self.db.update_vip_order(order_id, status="ACTIVE", paid_at=now_iso, expires_at=expires_iso)
-        await self.db.clear_pending_slip(order["customer_id"])
+        payments = self.bot.get_cog("PaymentsCog")
+        if payments is not None:
+            await payments.release_pending_slip(order["customer_id"], "VIP", order_id)
+        else:
+            await self.db.clear_pending_slip(order["customer_id"], "VIP", order_id)
 
         await send_dm(
             self.bot,

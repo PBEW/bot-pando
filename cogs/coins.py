@@ -714,7 +714,7 @@ class CoinsCog(commands.Cog):
         if job["job_type"] != "DONATE" and float(job.get("total_price") or 0) > 0:
             bonus = int(coins.opt(self.cfg, "first_visit_bonus"))
             prior = await self.db.fetchone(
-                "SELECT COUNT(*) AS n FROM jobs WHERE customer_id = ? AND id != ? AND job_type != 'DONATE' "
+                "SELECT COUNT(*) AS n FROM jobs WHERE customer_id = ? AND id != ? AND job_type NOT IN ('DONATE', 'BONUS') "
                 "AND status IN ('PAID','COMPLETED')",
                 (uid, job["id"]),
             )
@@ -757,10 +757,16 @@ class CoinsCog(commands.Cog):
         await self._change(user_id, bonus, "EARN", f"ชนะ Top Donate {month_label}", ref=f"topdonate:{month_label}")
 
     # ------------------------------------------------------- คูปองในบิล
-    async def use_voucher(self, voucher_id: int, job_id: int) -> None:
-        await self.db.execute(
-            "UPDATE coin_vouchers SET status = 'USED', used_job_id = ?, used_at = ? WHERE id = ?",
-            (job_id, to_iso(now_utc()), voucher_id),
+    async def use_voucher(self, voucher_id: int, job_id: int) -> bool:
+        """ตัดคูปองเป็น USED เฉพาะเมื่อยังใช้ได้ (ACTIVE และไม่หมดอายุ) — คืน False ถ้ามีคนใช้ไปก่อนแล้ว"""
+        now = to_iso(now_utc())
+        return (
+            await self.db.execute_count(
+                "UPDATE coin_vouchers SET status = 'USED', used_job_id = ?, used_at = ? "
+                "WHERE id = ? AND status = 'ACTIVE' AND expires_at > ?",
+                (job_id, now, voucher_id, now),
+            )
+            > 0
         )
 
     # ------------------------------------------------------------ ลูกค้า
@@ -914,7 +920,12 @@ class CoinsCog(commands.Cog):
         v = await self.db.fetchone("SELECT * FROM coin_vouchers WHERE id = ?", (voucher_id,))
         if v is None:
             return "ไม่พบคูปองนี้"
+        if v["status"] != "ACTIVE":
+            return "คูปองนี้ถูกใช้/หมดอายุไปแล้ว"
         item = coins.reward(self.cfg, v["reward_key"]) or {}
+        if item.get("type") == "role":
+            # Role รางวัลให้ไปตั้งแต่ตอนแลก — ต้องปล่อยให้ระบบถอดเองตอนหมดอายุ ถ้ากดใช้ Role จะติดถาวร
+            return "คูปอง Role ไม่ต้องกดใช้ — บอทจะถอด Role ให้อัตโนมัติเมื่อหมดอายุค่ะ"
         hours = int(item.get("role_hours") or 0)
         guild = self.bot.get_guild(self.cfg.guild_id)
         role = guild.get_role(int(item.get("role_id") or 0)) if guild and hours else None
@@ -924,13 +935,14 @@ class CoinsCog(commands.Cog):
                 await member.add_roles(role, reason=f"ใช้รางวัล {item.get('name')}")
                 until = now_utc() + dt.timedelta(hours=hours)
                 await self.db.execute(
-                    "UPDATE coin_vouchers SET status = 'ROLE', used_at = ?, expires_at = ? WHERE id = ?",
+                    "UPDATE coin_vouchers SET status = 'ROLE', used_at = ?, expires_at = ? WHERE id = ? AND status = 'ACTIVE'",
                     (to_iso(now_utc()), to_iso(until), voucher_id),
                 )
                 return f"ให้ Role {role.mention} {hours} ชั่วโมงแล้ว"
             except discord.HTTPException as exc:
                 log.warning("ให้ Role รางวัลไม่สำเร็จ: %s", exc)
-        await self.use_voucher(voucher_id, 0)
+        if not await self.use_voucher(voucher_id, 0):
+            return "คูปองนี้ถูกใช้/หมดอายุไปแล้ว"
         return "บันทึกว่าใช้แล้ว"
 
     # ------------------------------------------------------- การ์ดแกล้ง
@@ -958,7 +970,10 @@ class CoinsCog(commands.Cog):
         uid = interaction.user.id
         cost = int(item["cost"])
         problem = None
-        if target.id == performer_id:
+        if performer_id == uid:
+            # กันพนักงานส่งการ์ดให้ตัวเองเพื่อรับโบนัส (เท่ากับแลกเหรียญเป็นเงิน)
+            problem = "ส่งการ์ดแกล้งให้ตัวเองไม่ได้ค่ะ — เลือกพนักงานคนอื่นนะคะ"
+        elif target.id == performer_id:
             problem = "พนักงานที่ไปแกล้งกับเป้าหมายต้องเป็นคนละคนกันค่ะ"
         elif target.id in today and "prank_ok" not in today[target.id].get("accepts", []) and target.id != uid:
             problem = "พนักงานคนนี้ไม่ได้เปิดรับให้แกล้งวันนี้ค่ะ — เลือกเป้าหมายอื่นนะคะ"
@@ -1021,24 +1036,29 @@ class CoinsCog(commands.Cog):
         v = await self.db.fetchone("SELECT * FROM coin_vouchers WHERE id = ? AND status = 'PENDING'", (voucher_id,))
         if v is None:
             return None
+        # ล็อกการ์ดด้วย UPDATE แบบมีเงื่อนไข — กดรับซ้ำ/กดพร้อมหมดเวลา จะผ่านได้ครั้งเดียว (กันโบนัส/คืนเหรียญซ้ำ)
+        new_status = "USED" if accepted else "CANCELLED"
+        if not await self.db.execute_count(
+            "UPDATE coin_vouchers SET status = ?, used_at = ? WHERE id = ? AND status = 'PENDING'",
+            (new_status, to_iso(now_utc()), voucher_id),
+        ):
+            return None
         info = json.loads(await self.db.get_meta(f"prank:{voucher_id}") or "{}")
         item = coins.reward(self.cfg, v["reward_key"]) or {}
         if accepted:
-            await self.use_voucher(voucher_id, 0)
             bonus = float(item.get("staff_bonus", 0))
             if bonus:
                 now = to_iso(now_utc())
                 job_id = await self.db.create_job(
                     guild_id=self.cfg.guild_id, job_type="BONUS", customer_id=v["user_id"], staff_id=info["performer"],
                     services=[], note=f"โบนัสการ์ดแกล้ง V{voucher_id}", start_time=now, end_time=now,
-                    duration_minutes=0, total_price=0, staff_share=bonus, shop_share=-bonus, status="PAID",
+                    duration_minutes=0, total_price=0, staff_share=bonus, shop_share=-bonus, status="COMPLETED",
                     created_at=now, accepted_at=now, paid_at=now, notified_start=1, notified_end=1, review_sent=1,
                 )
                 payments = self.bot.get_cog("PaymentsCog")
                 if payments is not None:
                     await payments.log_job_to_sheet(await self.db.get_job(job_id))
         else:
-            await self.db.execute("UPDATE coin_vouchers SET status = 'CANCELLED' WHERE id = ?", (voucher_id,))
             await self._change(v["user_id"], int(v["cost"]), "REFUND", f"คืนเหรียญการ์ดแกล้ง ({reason})", ref=f"voucher:{voucher_id}")
         return info
 

@@ -147,7 +147,7 @@ copy .env.example .env
 |---|---|
 | `/panel reception` · `/panel_request` · `/panel_staff` · `/panel_admin` · `/panel_attendance` | โพสต์แผงปุ่ม |
 | `/bill info` · `/bill paid` · `/bill cancel` | ดูบิล / ยืนยันชำระด้วยมือ / ยกเลิกบิล |
-| `/summary` · `/cutoff` | สรุปยอดรอบนี้ / ตัดรอบทันที |
+| `/summary` · `/cutoff` | สรุปยอดรอบนี้ / ตัดยอดทันที (สรุปตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้ แล้วเริ่มนับใหม่ — สรุปอัตโนมัติจะไม่นับซ้ำ) |
 | `/top_donate` | อันดับโดเนทรายเดือน (ทุกคนใช้ได้) |
 | `/menu` | เมนูร้านและราคา (ทุกคนใช้ได้) |
 | `/my_hours` · `/on_duty` · `/attendance_report` · `/attendance_fix` · `/daily_checkin` | ระบบลงเวลาพนักงาน |

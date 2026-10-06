@@ -181,17 +181,36 @@ class SchedulerCog(commands.Cog):
             return
         await self.run_cutoff(now_local)
 
-    async def run_cutoff(self, now_local: dt.datetime | None = None) -> discord.Embed:
+    async def _last_cut_at(self) -> dt.datetime | None:
+        """เวลาที่ตัดยอดครั้งล่าสุด (รวมการกดตัดรอบทันที) — ยอดก่อนเวลานี้สรุปจ่ายไปแล้ว"""
+        value = await self.db.get_meta("last_cut_at")
+        return from_iso(value).astimezone(self.cfg.tz) if value else None
+
+    async def _period_start(self, default_start: dt.datetime) -> dt.datetime:
+        last = await self._last_cut_at()
+        return max(default_start, last) if last else default_start
+
+    async def run_cutoff(self, now_local: dt.datetime | None = None, *, manual: bool = False) -> discord.Embed:
+        """ตัดยอด: อัตโนมัติ = สรุปรอบที่เพิ่งจบ · manual = สรุปตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้ แล้วเริ่มนับใหม่จากตอนนี้"""
         now_local = now_local or dt.datetime.now(self.cfg.tz)
         current_start = cycle_start_local(now_local, self.cfg)
-        previous_start = current_start - dt.timedelta(days=7)
+        if manual:
+            period_start = await self._period_start(current_start)
+            period_end = now_local
+        else:
+            period_start = await self._period_start(current_start - dt.timedelta(days=7))
+            period_end = current_start
+        # กันช่วงเวลากลับหัว (เช่น กดตัดรอบทันทีแล้วตามด้วยตัดรอบอัตโนมัติในรอบเดียวกัน)
+        period_start = min(period_start, period_end)
 
-        summary = await self.build_summary(previous_start, current_start)
+        summary = await self.build_summary(period_start, period_end)
+        await self.db.set_meta("last_cut_at", to_iso(period_end))
 
         new_title = cycle_title(self.cfg, now_local)
         created = await self.bot.sheets.create_cycle_sheet(new_title)
         await self.db.set_meta("current_cycle", new_title)
-        await self.db.set_meta("last_cutoff", current_start.date().isoformat())
+        if not manual:
+            await self.db.set_meta("last_cutoff", current_start.date().isoformat())
 
         summary.add_field(
             name="ชีตรอบใหม่",
@@ -209,7 +228,7 @@ class SchedulerCog(commands.Cog):
 
         attendance = self.bot.get_cog("AttendanceCog")
         if attendance is not None:
-            hours_embed = await attendance.build_hours_summary(previous_start, current_start)
+            hours_embed = await attendance.build_hours_summary(period_start, period_end)
             await payments.notify_admin(embed=hours_embed)
         log.info("ตัดรอบเรียบร้อย -> %s", new_title)
         return summary
@@ -412,7 +431,7 @@ class SchedulerCog(commands.Cog):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        await self.run_cutoff()
+        await self.run_cutoff(manual=True)
         await interaction.followup.send("ตัดรอบเรียบร้อย ส่งสรุปเข้าห้องแอดมินแล้วค่ะ", ephemeral=True)
 
     @app_commands.command(name="summary", description="ดูสรุปยอดของรอบปัจจุบัน (แอดมิน)")
@@ -425,7 +444,7 @@ class SchedulerCog(commands.Cog):
 
     async def current_summary(self) -> discord.Embed:
         now_local = dt.datetime.now(self.cfg.tz)
-        start = cycle_start_local(now_local, self.cfg)
+        start = await self._period_start(cycle_start_local(now_local, self.cfg))
         embed = await self.build_summary(start, now_local)
         embed.title = "📊 สรุปยอดรอบปัจจุบัน"
         embed.color = COLOR_INFO

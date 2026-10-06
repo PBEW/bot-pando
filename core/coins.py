@@ -47,6 +47,15 @@ DEFAULT_REWARDS = [
      "role_id": 0, "role_hours": 24},
 ]
 
+# รางวัลชุดเก่าที่เลิกแลกแล้ว — เก็บไว้ให้คูปองที่ลูกค้าแลกไปก่อนหน้ายังใช้ได้/ถอด Role ได้ตอนหมดอายุ
+LEGACY_REWARDS = [
+    {"key": "color_role", "name": "Role สีพิเศษ 30 วัน", "emoji": "🎨", "cost": 40, "type": "role", "role_id": 0, "days": 30, "retired": True},
+    {"key": "free_shot", "name": "Drink Friend ฟรี 1 shot", "emoji": "🥃", "cost": 60, "type": "service_free", "service": "drink_friend", "qty": 1, "retired": True},
+    {"key": "priority", "name": "จองพนักงานคนโปรดก่อน 1 ครั้ง", "emoji": "⭐", "cost": 80, "type": "manual", "retired": True},
+    {"key": "free_short_date", "name": "Short Date ฟรี 20 นาที", "emoji": "☕", "cost": 100, "type": "service_free", "service": "short_date", "qty": 1, "retired": True},
+    {"key": "karaoke_half", "name": "Karaoke ลด 50%", "emoji": "🎤", "cost": 120, "type": "service_discount", "service": "karaoke", "percent": 50, "retired": True},
+]
+
 DEFAULT_PRANKS = [
     "🎂 ร้องเพลงวันเกิดใส่เพื่อน (ทั้งที่ไม่ใช่วันเกิด)",
     "🤡 ใส่หมวก/ชุดตลกไปนั่งข้างเพื่อน 3 นาที",
@@ -87,7 +96,8 @@ def rewards(cfg: Config, *, include_retired: bool = False) -> list[dict]:
 
 
 def reward(cfg: Config, key: str) -> dict | None:
-    return next((r for r in rewards(cfg, include_retired=True) if r["key"] == key), None)
+    found = next((r for r in rewards(cfg, include_retired=True) if r["key"] == key), None)
+    return found or next((r for r in LEGACY_REWARDS if r["key"] == key), None)
 
 
 def pranks(cfg: Config) -> list[str]:
@@ -178,6 +188,8 @@ def voucher_discount(
         discount = float(reward_item.get("amount", 0))
         if total is not None and staff_share is not None:
             discount = min(discount, max(total - staff_share, 0))
+            if discount <= 0:
+                return 0.0, "บิลนี้ไม่มีส่วนของร้านให้หักส่วนลด (พนักงานได้เต็มยอด) — เก็บคูปองไว้ใช้บิลอื่นนะคะ"
         return round(discount, 2), None
     key = reward_item.get("service")
     svc = cfg.service(key) if key else None

@@ -157,6 +157,40 @@ class PaymentsCog(commands.Cog):
             )
         return sent is not None
 
+    async def release_pending_slip(self, customer_id: int, kind: str, ref_id: int) -> None:
+        """ปิดช่องรอสลิปของรายการนี้ (ถ้ายังชี้อยู่) แล้วชี้ไปที่รายการอื่นที่ลูกค้ายังค้างจ่าย
+
+        ลูกค้ามีได้ช่องเดียว — ถ้ามีบิลค้างจ่าย 2 ใบ (เช่น บิลหลัก + บิลต่อเวลา) ใบหลังจะทับใบแรก
+        พอใบหลังจบ ต้องย้ายช่องกลับไปที่ใบแรก ไม่งั้นสลิปของใบแรกไม่มีทางเข้าระบบ
+        """
+        if not await self.db.clear_pending_slip(customer_id, kind, ref_id):
+            return
+        job = await self.db.fetchone(
+            "SELECT id, total_price FROM jobs WHERE customer_id = ? AND status = 'ACCEPTED' AND total_price > 0 "
+            "ORDER BY id DESC LIMIT 1",
+            (customer_id,),
+        )
+        if job is not None:
+            await self.db.set_pending_slip(customer_id, "JOB", job["id"], to_iso(now_utc()))
+            await send_dm(
+                self.bot,
+                customer_id,
+                embed=discord.Embed(
+                    description=(
+                        f"🧾 ยังมีบิล `#{job['id']}` ยอด **{money(job['total_price'])}** รอชำระอยู่ "
+                        "ส่งภาพสลิปของบิลนี้ใน DM นี้ได้เลยค่ะ"
+                    ),
+                    color=COLOR_INFO,
+                ),
+            )
+            return
+        order = await self.db.fetchone(
+            "SELECT id FROM vip_orders WHERE customer_id = ? AND status = 'AWAITING_PAYMENT' ORDER BY id DESC LIMIT 1",
+            (customer_id,),
+        )
+        if order is not None:
+            await self.db.set_pending_slip(customer_id, "VIP", order["id"], to_iso(now_utc()))
+
     async def start_vip_payment(self, order: dict) -> None:
         package = self.cfg.vip_package(order["package_key"])
         name = package["name"] if package else order["package_key"]
@@ -272,8 +306,17 @@ class PaymentsCog(commands.Cog):
             if order is None:
                 ok, msg = False, "ไม่พบคำสั่งซื้อนี้"
             else:
-                await self.db.update_vip_order(ref_id, status="CANCELLED")
-                await self.db.clear_pending_slip(order["customer_id"])
+                cancelled = await self.db.execute_count(
+                    "UPDATE vip_orders SET status = 'CANCELLED' WHERE id = ? "
+                    "AND status IN ('AWAITING_PAYMENT', 'SLIP_PENDING')",
+                    (ref_id,),
+                )
+                if not cancelled:
+                    await self._finish_admin_message(
+                        interaction, "คำสั่งซื้อนี้ถูกดำเนินการไปแล้ว (ยืนยัน/ยกเลิกแล้ว)", COLOR_DANGER
+                    )
+                    return
+                await self.release_pending_slip(order["customer_id"], "VIP", ref_id)
                 note = discord.Embed(
                     title="❌ คำสั่งซื้อ VIP ถูกยกเลิก",
                     description="แอดมินยกเลิกรายการนี้ หากมีข้อสงสัยติดต่อแอดมินได้เลยค่ะ",
@@ -311,8 +354,12 @@ class PaymentsCog(commands.Cog):
         if job["status"] == "CANCELLED":
             return False, "บิลนี้ถูกยกเลิกไปแล้ว"
 
-        await self.db.update_job(job_id, status="PAID", paid_at=to_iso(now_utc()))
-        await self.db.clear_pending_slip(job["customer_id"])
+        # เปลี่ยนสถานะแบบมีเงื่อนไข — แอดมิน 2 คนกดพร้อมกัน จะมีแค่คนเดียวที่ผ่าน (กันเหรียญ/Sheets ซ้ำ)
+        if not await self.db.claim_job(
+            job_id, ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING"], status="PAID", paid_at=to_iso(now_utc())
+        ):
+            return False, "บิลนี้ถูกดำเนินการไปแล้ว (ชำระแล้ว/ยกเลิกแล้ว)"
+        await self.release_pending_slip(job["customer_id"], "JOB", job_id)
         job = await self.db.get_job(job_id)
         coins_cog = self.bot.get_cog("CoinsCog")
         if coins_cog is not None:
@@ -352,8 +399,14 @@ class PaymentsCog(commands.Cog):
         if job["status"] == "CANCELLED":
             return False, "บิลนี้ถูกยกเลิกไปแล้ว"
 
-        await self.db.update_job(job_id, status="CANCELLED", cancelled_at=to_iso(now_utc()))
-        await self.db.clear_pending_slip(job["customer_id"])
+        if not await self.db.claim_job(
+            job_id,
+            ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID", "COMPLETED"],
+            status="CANCELLED",
+            cancelled_at=to_iso(now_utc()),
+        ):
+            return False, "บิลนี้ถูกยกเลิกไปแล้ว"
+        await self.release_pending_slip(job["customer_id"], "JOB", job_id)
         coins_cog = self.bot.get_cog("CoinsCog")
         if coins_cog is not None:
             await coins_cog.on_job_cancelled(job)
@@ -384,14 +437,37 @@ class PaymentsCog(commands.Cog):
         for staff_id in job_staff_ids(job):
             await send_dm(self.bot, staff_id, embed=note)
 
-        reason_suffix = f"\nเหตุผล: {reason}" if reason else ""
-        return True, (
-            f"ยกเลิกบิล `#{job_id}` แล้ว โดย {admin.mention} (ไม่บันทึกลง Google Sheets){reason_suffix}"
-        )
+        # ยกเลิกบิลแม่ = ยกเลิกบิลต่อเวลาที่ยังไม่จ่ายด้วย (ไม่งั้นลูกค้ายังถูกเก็บเงินค่าต่อเวลา)
+        child_notes = []
+        if job["job_type"] == "NORMAL":
+            children = await self.db.fetchall(
+                "SELECT id, status FROM jobs WHERE parent_job_id = ? AND job_type = 'EXTEND' AND status != 'CANCELLED'",
+                (job_id,),
+            )
+            for child in children:
+                if child["status"] in ("PAID", "COMPLETED"):
+                    child_notes.append(f"⚠️ บิลต่อเวลา `#{child['id']}` ชำระแล้ว — ตรวจสอบ/ยกเลิกแยกเองถ้าต้องคืนเงิน")
+                    continue
+                await self.cancel_job(child["id"], admin, f"ยกเลิกตามบิลหลัก #{job_id}")
+                child_notes.append(f"ยกเลิกบิลต่อเวลา `#{child['id']}` ด้วย")
 
-    async def reject_job_by_staff(self, job: dict, staff: discord.abc.User, reason: str) -> None:
+        if job.get("sheet_logged"):
+            sheet_note = (
+                f"⚠️ บิลนี้ลง Google Sheets ไปแล้ว — กรุณาลบแถวบิล `#{job_id}` ในชีตด้วยมือ "
+                "ไม่งั้นยอดในชีตจะไม่ตรงกับสรุปของบอท"
+            )
+        else:
+            sheet_note = "(ไม่บันทึกลง Google Sheets)"
+        reason_suffix = f"\nเหตุผล: {reason}" if reason else ""
+        extra = "".join(f"\n{n}" for n in child_notes)
+        return True, f"ยกเลิกบิล `#{job_id}` แล้ว โดย {admin.mention} {sheet_note}{reason_suffix}{extra}"
+
+    async def reject_job_by_staff(self, job: dict, staff: discord.abc.User, reason: str) -> bool:
         """พนักงานปฏิเสธงานเพราะแอดมินคีย์บิลผิด — ยกเลิกบิลเงียบๆ (ลูกค้ายังไม่เคยรู้เรื่องบิลนี้)"""
-        await self.db.update_job(job["id"], status="CANCELLED", cancelled_at=to_iso(now_utc()))
+        if not await self.db.claim_job(
+            job["id"], ["PENDING_STAFF"], status="CANCELLED", cancelled_at=to_iso(now_utc())
+        ):
+            return False
         coins_cog = self.bot.get_cog("CoinsCog")
         if coins_cog is not None:
             await coins_cog.on_job_cancelled(job)  # คืนคูปองที่ใช้กับบิลนี้
@@ -424,6 +500,7 @@ class PaymentsCog(commands.Cog):
                 color=COLOR_DANGER,
             )
         )
+        return True
 
     # ----------------------------------------------------- Google Sheets
     async def log_job_to_sheet(self, job: dict) -> None:
@@ -467,11 +544,18 @@ class PaymentsCog(commands.Cog):
         # ลงแท็บของรอบที่ชำระเงินจริง (บิลที่เติมย้อนหลังจะไม่ไปปนรอบปัจจุบัน)
         paid = from_iso(job.get("paid_at"))
         title = cycle_title(self.cfg, paid.astimezone(tz)) if paid else cycle_title(self.cfg)
-        ok = True
-        for row in rows:
-            ok = await self.bot.sheets.append_job_row(title, row) and ok
-        if ok:
-            await self.db.update_job(job["id"], sheet_logged=1)
+        # จำว่าลงไปแล้วกี่แถว — ถ้าล้มกลางทาง รอบหน้าลงต่อจากแถวที่ค้าง ไม่ลงซ้ำแถวที่สำเร็จแล้ว
+        progress_key = f"sheet_rows:{job['id']}"
+        done = int(await self.db.get_meta(progress_key) or 0)
+        for index, row in enumerate(rows):
+            if index < done:
+                continue
+            if not await self.bot.sheets.append_job_row(title, row):
+                await self.db.set_meta(progress_key, str(done))
+                return
+            done += 1
+        await self.db.update_job(job["id"], sheet_logged=1)
+        await self.db.execute("DELETE FROM meta WHERE key = ?", (progress_key,))
 
     async def backfill_sheet(self) -> int:
         """ลงชีตให้บิลที่ชำระแล้วแต่ยังไม่เคยลง (เช่น ตอน Sheets ยังไม่มีสิทธิ์เขียน) — คืนจำนวนบิลที่ลงได้"""
