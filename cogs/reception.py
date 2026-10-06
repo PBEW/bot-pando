@@ -875,6 +875,71 @@ class ReceptionPanel(discord.ui.View):
         cog: ReceptionCog = interaction.client.get_cog("ReceptionCog")  # type: ignore[assignment]
         await cog.show_active_jobs(interaction)
 
+    @discord.ui.button(
+        label="ยืนยันชำระเงิน",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+        custom_id="olp:panel:bill_paid",
+        row=1,
+    )
+    async def bill_paid(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cog: ReceptionCog = interaction.client.get_cog("ReceptionCog")  # type: ignore[assignment]
+        if not cog._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
+            return
+        await interaction.response.send_modal(BillActionModal("paid"))
+
+    @discord.ui.button(
+        label="ยกเลิกบิล",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="olp:panel:bill_cancel",
+        row=1,
+    )
+    async def bill_cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cog: ReceptionCog = interaction.client.get_cog("ReceptionCog")  # type: ignore[assignment]
+        if not cog._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
+            return
+        await interaction.response.send_modal(BillActionModal("cancel"))
+
+
+class BillActionModal(discord.ui.Modal):
+    """ยืนยันชำระด้วยมือ / ยกเลิกบิล จากแผงรีเซปชั่น (เหมือน /bill paid · /bill cancel)"""
+
+    def __init__(self, action: str) -> None:
+        super().__init__(title="✅ ยืนยันชำระเงินด้วยมือ" if action == "paid" else "❌ ยกเลิกบิล")
+        self.action = action
+        self.job_id = discord.ui.TextInput(label="เลขที่บิล", placeholder="เช่น 12", max_length=10)
+        self.add_item(self.job_id)
+        if action == "cancel":
+            self.reason = discord.ui.TextInput(
+                label="เหตุผล (ไม่บังคับ — ส่งให้ลูกค้า/พนักงาน)", required=False, max_length=200
+            )
+            self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.job_id.value.strip().lstrip("#")
+        if not raw.isdigit():
+            await interaction.response.send_message("⚠️ เลขที่บิลต้องเป็นตัวเลขค่ะ", ephemeral=True)
+            return
+        cog: ReceptionCog = interaction.client.get_cog("ReceptionCog")  # type: ignore[assignment]
+        if not cog._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)  # ส่ง DM / ลงชีต อาจเกิน 3 วิ
+        payments = interaction.client.get_cog("PaymentsCog")
+        if self.action == "paid":
+            ok, msg = await payments.mark_job_paid(int(raw), interaction.user)
+        else:
+            reason = str(self.reason.value).strip() or None
+            ok, msg = await payments.cancel_job(int(raw), interaction.user, reason)
+        await interaction.followup.send(
+            embed=discord.Embed(description=msg, color=COLOR_OK if ok else COLOR_DANGER), ephemeral=True
+        )
+        if ok:
+            await payments.notify_admin_text(f"🧾 {interaction.user.mention} (แผงรีเซปชั่น): {msg}")
+
 
 # --------------------------------------------------------------------- cog
 class ReceptionCog(commands.Cog):
@@ -1307,6 +1372,10 @@ class ReceptionCog(commands.Cog):
                     ("⏱️ ต่อเวลา / เพิ่มรอบ", "ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม"),
                     ("📋 งานที่กำลังดำเนินอยู่", "ดูงานที่ยังไม่จบเวลา"),
                 ]),
+                ("💳 การชำระเงิน", [
+                    ("✅ ยืนยันชำระเงิน", "ใส่เลขบิล — ลูกค้าจ่ายแล้วแต่ไม่ได้ส่งสลิปผ่านบอท (เหมือน /bill paid)"),
+                    ("❌ ยกเลิกบิล", "ใส่เลขบิล + เหตุผล — แจ้งลูกค้า/พนักงานให้อัตโนมัติ (เหมือน /bill cancel)"),
+                ]),
                 ("💡 ควรรู้", "\n".join(tips)),
             ],
             footer="ผลลัพธ์ของปุ่มเห็นเฉพาะคนกด",
@@ -1322,8 +1391,8 @@ class ReceptionCog(commands.Cog):
     @bill_group.command(name="info", description="ดูรายละเอียดบิลตามเลขที่")
     @app_commands.describe(job_id="เลขที่บิล")
     async def bill_info(self, interaction: discord.Interaction, job_id: int) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         job = await self.db.get_job(job_id)
         if job is None:
@@ -1338,8 +1407,8 @@ class ReceptionCog(commands.Cog):
     async def bill_cancel(
         self, interaction: discord.Interaction, job_id: int, reason: str | None = None
     ) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         # ตอบ Discord ก่อน (ต้องภายใน 3 วิ) แล้วค่อยส่ง DM / อัปเดตชีต
         await interaction.response.defer(ephemeral=True)
@@ -1353,8 +1422,8 @@ class ReceptionCog(commands.Cog):
     @bill_group.command(name="paid", description="ทำเครื่องหมายว่าชำระเงินแล้วด้วยมือ")
     @app_commands.describe(job_id="เลขที่บิล")
     async def bill_paid(self, interaction: discord.Interaction, job_id: int) -> None:
-        if not self._admin_guard(interaction):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        if not self._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         payments = self.bot.get_cog("PaymentsCog")
