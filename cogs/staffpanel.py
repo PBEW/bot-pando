@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.cycle import cycle_start_local
-from core.embeds import COLOR_MAIN, COLOR_OK, STATUS_LABEL
+from core.embeds import COLOR_MAIN, COLOR_OK, STATUS_LABEL, panel_embed
 from core.pricing import job_staff_ids, job_staff_split
 from core.utils import discord_ts, fmt_datetime, from_iso, is_admin, money, now_utc, purge_old_panels, to_iso
 
@@ -202,16 +202,28 @@ class StaffPanelCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:staff:")
 
-        embed = discord.Embed(
-            title="🧑‍💼 Pandora · เมนูพนักงาน",
-            description=(
-                "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคุณ\n\n"
-                "**ลงเวลา** — 🟢 เข้างาน · ↩️ ยกเลิกเข้างาน (กดผิด)\n"
-                "**ของฉัน** — 🕒 ชั่วโมงของฉัน · 💰 รายได้รอบนี้ · 📋 งานของฉัน\n"
-                "**ทีม** — 👥 มาทำงานวันนี้ · 💳 บัญชีรับเงิน (ใส่ไว้ให้แอดมินโอนส่วนแบ่ง)\n\n"
-                "*ไม่ต้องกดออกงาน บอทตัดยอดให้อัตโนมัติทุกตี 1*"
-            ),
-            color=COLOR_MAIN,
+        attendance = self.bot.get_cog("AttendanceCog")
+        cutoff = attendance.cutoff_label() if attendance else "ตี 1"
+        embed = panel_embed(
+            "🧑‍💼 Pandora · เมนูพนักงาน",
+            "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคุณ",
+            [
+                ("🕒 ลงเวลา", [
+                    ("🟢 เข้างาน", "เลือกงานที่รับวันนี้ แล้วรับ Role On Duty"),
+                    ("↩️ ยกเลิกเข้างาน", "กดผิด กดยกเลิกได้ (ไม่นับชั่วโมง)"),
+                ]),
+                ("👤 ของฉัน", [
+                    ("🕒 ชั่วโมงของฉัน", "ชั่วโมงสะสมรอบนี้"),
+                    ("💰 รายได้รอบนี้", "ส่วนแบ่งที่จะได้รับในรอบนี้"),
+                    ("📋 งานของฉัน", "บิลที่ยังไม่จบเวลา"),
+                ]),
+                ("👥 ทีม", [
+                    ("👥 มาทำงานวันนี้", "ใครเข้างานบ้างวันนี้"),
+                    ("💳 บัญชีรับเงิน", "ใส่บัญชีไว้ให้แอดมินโอนส่วนแบ่ง"),
+                ]),
+            ],
+            footer=f"ไม่ต้องกดออกงาน — บอทตัดยอดให้อัตโนมัติทุก {cutoff}",
+            guild=interaction.guild,
         )
         await interaction.channel.send(embed=embed, view=StaffPanel())
 

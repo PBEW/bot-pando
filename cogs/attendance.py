@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.cycle import cycle_start_local
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, panel_embed
 from core.utils import (
     TimeParseError,
     discord_ts,
@@ -480,15 +480,18 @@ class AttendanceCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:attendance:")
 
-        embed = discord.Embed(
-            title="🕒 Pandora · ลงเวลาทำงาน",
-            description=(
-                "🟢 **เข้างาน** — กดเมื่อมาทำงาน\n"
-                "↩️ **ยกเลิกเข้างาน** — กดผิด กดยกเลิกได้\n"
-                "🕒 **ชั่วโมงของฉัน** — ดูชั่วโมงสะสมของรอบนี้\n\n"
-                f"*ไม่ต้องกดออกงาน บอทตัดยอดให้อัตโนมัติทุก {self.cutoff_label()}*"
-            ),
-            color=COLOR_MAIN,
+        embed = panel_embed(
+            "🕒 Pandora · ลงเวลาทำงาน",
+            "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคุณ",
+            [
+                ("🕒 ลงเวลา", [
+                    ("🟢 เข้างาน", "กดเมื่อมาทำงาน แล้วเลือกงานที่รับวันนี้"),
+                    ("↩️ ยกเลิกเข้างาน", "กดผิด กดยกเลิกได้"),
+                    ("🕒 ชั่วโมงของฉัน", "ดูชั่วโมงสะสมของรอบนี้"),
+                ]),
+            ],
+            footer=f"ไม่ต้องกดออกงาน — บอทตัดยอดให้อัตโนมัติทุก {self.cutoff_label()}",
+            guild=interaction.guild,
         )
         await interaction.channel.send(embed=embed, view=AttendancePanel())
 

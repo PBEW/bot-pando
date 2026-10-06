@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.coins import enabled as coin_enabled, label as coin_label, opt as coin_opt
-from core.embeds import COLOR_MAIN
+from core.embeds import COLOR_MAIN, panel_embed
 from core.utils import is_admin, purge_old_panels
 from core.vip_logic import perks_lines
 
@@ -21,38 +21,45 @@ COMFORT_NOTE = (
 
 def menu_embed(cfg) -> discord.Embed:
     """เมนูบริการ + ราคา สร้างจาก config.json (แก้ราคาใน config แล้วเมนูเปลี่ยนตาม)"""
-    embed = discord.Embed(title=f"📜 เมนูบริการ · {cfg.shop_name}", color=COLOR_MAIN)
+    embed = discord.Embed(
+        title=f"📜 เมนูบริการ · {cfg.shop_name}",
+        description="ราคาต่อรอบ · แจ้งแอดมินผ่าน 💬 **สอบถามเจ้าหน้าที่** เพื่อจองได้เลยค่ะ",
+        color=COLOR_MAIN,
+    )
 
     extends = {s["key"]: s for s in cfg.services if s.get("extend_only")}
     for svc in cfg.bookable_services():
         price = svc.get("pricing", {}).get("normal", 0)
-        if svc.get("per_unit"):
+        if svc.get("vip_only"):
+            head = f"ฟรีสำหรับสมาชิก VIP · {svc.get('duration_minutes', 10)} นาที"
+        elif svc.get("per_unit"):
             head = f"{price:,.0f} บาท / {svc.get('unit_label', 'หน่วย')}"
         elif svc.get("addon_for"):
             head = f"+{price:,.0f} บาท ต่อรอบ (บริการเสริม)"
         else:
             head = f"{price:,.0f} บาท / {svc.get('duration_minutes', 60)} นาที"
 
-        lines = [f"**{head}**"]
+        lines = [f"💰 **{head}**"]
         if svc.get("description"):
-            lines.append(svc["description"])
+            lines.append(f"┗ {svc['description']}")
         if svc.get("multi_staff"):
             inc = int(svc.get("included_staff", 1))
             lines.append(
-                (f"รวมพนักงาน {inc} คน · " if inc > 1 else "")
+                "👥 "
+                + (f"รวมพนักงาน {inc} คน · " if inc > 1 else "")
                 + f"พนักงานเพิ่มคนละ {svc.get('extra_staff_price', 0):,.0f} บาท (สูงสุด {svc.get('max_staff', 10)} คน)"
             )
         if int(svc.get("max_customers", 1)) > 1:
             price = float(svc.get("extra_customer_price", 0))
             lines.append(
-                f"มากับเพื่อนได้ถึง {svc['max_customers']} คน · "
+                f"👫 มากับเพื่อนได้ถึง {svc['max_customers']} คน · "
                 + (f"เพิ่มคนละ {price:,.0f} บาท" if price else "ไม่คิดเพิ่ม")
                 + (" (ขึ้นอยู่กับพนักงานยินยอม)" if svc.get("group_consent") else "")
             )
         ext = next((e for k, e in extends.items() if k.startswith(svc["key"])), None)
         if ext:
             lines.append(
-                f"{ext['name']}: {ext['pricing'].get('normal', 0):,.0f} บาท / {ext.get('duration_minutes', 0)} นาที"
+                f"⏱️ {ext['name']}: {ext['pricing'].get('normal', 0):,.0f} บาท / {ext.get('duration_minutes', 0)} นาที"
             )
         if svc.get("addon_for"):
             bonus = [
@@ -61,7 +68,7 @@ def menu_embed(cfg) -> discord.Embed:
                 if not (cfg.service(k) or {}).get("extend_only")
             ]
             if bonus:
-                lines.append("ใช้คู่กับ: " + " · ".join(bonus))
+                lines.append("🔗 ใช้คู่กับ: " + " · ".join(bonus))
         embed.add_field(name=f"{svc.get('emoji', '')} {svc['name']}", value="\n".join(lines)[:1024], inline=False)
 
     if cfg.top_donate_enabled:
@@ -181,64 +188,44 @@ class RequestPanel(discord.ui.View):
         await cog.check_vip(interaction)
 
 
-def _item(title: str, detail: str) -> str:
-    """ปุ่ม 1 รายการ: ชื่อปุ่มตัวหนา + คำอธิบายสั้นบรรทัดถัดไป"""
-    return f"**{title}**\n┗ {detail}"
-
-
 def request_panel_embed(cfg, guild: discord.Guild | None = None) -> discord.Embed:
     """หน้าตาแผงลูกค้า — แบ่งเป็นหมวดตามแถวปุ่ม อ่านง่ายบนมือถือ"""
-    embed = discord.Embed(
-        title=f"✨ {cfg.shop_name}",
-        description="ยินดีต้อนรับค่ะ 💜\nกดปุ่มด้านล่างได้เลย — บอทจะตอบกลับทาง **DM** ของคุณ",
-        color=COLOR_MAIN,
-    )
-    if guild is not None and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-
-    embed.add_field(
-        name="🛎️ บริการลูกค้า",
-        value="\n".join([
-            _item("💬 สอบถามเจ้าหน้าที่", "คุยกับแอดมินตัวต่อตัว · จองพนักงาน / สั่งบริการ"),
-            _item("📜 เมนู & ราคา", "ดูบริการและราคาทั้งหมดของร้าน"),
-            _item("👥 พนักงานวันนี้", "ใครเข้างาน และรับงานแบบไหนบ้าง"),
+    sections: list = [
+        ("🛎️ บริการลูกค้า", [
+            ("💬 สอบถามเจ้าหน้าที่", "คุยกับแอดมินตัวต่อตัว · จองพนักงาน / สั่งบริการ"),
+            ("📜 เมนู & ราคา", "ดูบริการและราคาทั้งหมดของร้าน"),
+            ("👥 พนักงานวันนี้", "ใครเข้างาน และรับงานแบบไหนบ้าง"),
         ]),
-        inline=False,
-    )
-    embed.add_field(
-        name="💜 สนับสนุนพนักงาน",
-        value="\n".join([
-            _item("💜 โดเนทให้พนักงาน", "เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิป"),
-            _item("🏆 Top Donate", "อันดับยอดโดเนทของเดือนนี้"),
+        ("💜 สนับสนุนพนักงาน", [
+            ("💜 โดเนทให้พนักงาน", "เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิป"),
+            ("🏆 Top Donate", "อันดับยอดโดเนทของเดือนนี้"),
         ]),
-        inline=False,
-    )
+    ]
     if coin_enabled(cfg):
-        embed.add_field(
-            name=coin_label(cfg),
-            value=(
-                f"ได้ **1 เหรียญทุก {coin_opt(cfg, 'baht_per_coin')} บาท** สะสมแลกรางวัล\n"
-                "┗ การ์ดแกล้ง 🃏 · ส่วนลด 💸 · สั่ง CEO 👑 · Host Night 🏰\n"
-                "🪙 เหรียญของฉัน · 🎁 แลกรางวัล · 🏅 อันดับนักสะสม"
-            ),
-            inline=False,
-        )
+        sections.append((
+            coin_label(cfg),
+            f"ได้ **1 เหรียญทุก {coin_opt(cfg, 'baht_per_coin')} บาท** สะสมแลกรางวัล\n"
+            "┗ การ์ดแกล้ง 🃏 · ส่วนลด 💸 · สั่ง CEO 👑 · Host Night 🏰\n"
+            "🪙 เหรียญของฉัน · 🎁 แลกรางวัล · 🏅 อันดับนักสะสม",
+        ))
     if cfg.vip_enabled:
         pkg = (cfg.vip_packages or [None])[0]
         name = f"💎 {pkg['name']} · {float(pkg['price']):,.0f} บาท" if pkg else "💎 Pandora VIP"
         perks = "\n".join(f"✦ {p}" for p in perks_lines(cfg, compact=True))
-        embed.add_field(
-            name=name[:256],
-            value=(
-                (perks + "\n\n" if perks else "")
-                + "💎 **สมัคร / ต่ออายุ** — สมัครเองได้ ชำระผ่าน QR ใน DM\n"
-                "🔍 **ตรวจสอบสิทธิ์** — วันหมดอายุ & Free Date วันนี้"
-            )[:1024],
-            inline=False,
-        )
-    embed.add_field(name="💜 สำคัญ", value=COMFORT_NOTE, inline=False)
-    embed.set_footer(text="📩 กรุณาเปิดรับข้อความ DM จากสมาชิกในเซิร์ฟเวอร์ก่อนใช้งานนะคะ")
-    return embed
+        sections.append((
+            name,
+            (perks + "\n\n" if perks else "")
+            + "💎 **สมัคร / ต่ออายุ** — สมัครเองได้ ชำระผ่าน QR ใน DM\n"
+            "🔍 **ตรวจสอบสิทธิ์** — วันหมดอายุ & Free Date วันนี้",
+        ))
+    sections.append(("💜 สำคัญ", COMFORT_NOTE))
+    return panel_embed(
+        f"✨ {cfg.shop_name}",
+        "ยินดีต้อนรับค่ะ 💜\nกดปุ่มด้านล่างได้เลย — บอทจะตอบกลับทาง **DM** ของคุณ",
+        sections,
+        footer="📩 กรุณาเปิดรับข้อความ DM จากสมาชิกในเซิร์ฟเวอร์ก่อนใช้งานนะคะ",
+        guild=guild,
+    )
 
 
 class RequestPanelCog(commands.Cog):

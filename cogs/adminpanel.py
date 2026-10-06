@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, panel_embed
 from core.utils import is_admin, purge_old_panels
 
 NOT_ADMIN = "เฉพาะแอดมินเท่านั้นค่ะ"
@@ -291,16 +291,30 @@ class AdminPanelCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:admin:")
 
-        embed = discord.Embed(
-            title="🛠️ Pandora · เมนูแอดมิน",
-            description=(
-                "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคนกด\n\n"
-                "**ดูข้อมูล** — 📊 สรุปยอดรอบนี้ · 🕒 ชั่วโมงงาน · 🟢 มาทำงานวันนี้\n"
-                "**จัดการ** — 🏆 Top Donate · ⚙️ ตั้งค่าร้าน (ห้อง/บริการ/ราคา/ส่วนแบ่ง/ชำระเงิน) · 🪙 เหรียญ Pandora (ดู/ปรับเหรียญ, คูปอง, อีเวนต์, รางวัล) · ✏️ แก้เวลาเข้างาน · ✂️ ตัดรอบทันที\n"
-                "**ระบบ** — 🩺 สถานะระบบ · 🔄 โหลด config ใหม่ · 📖 คำสั่งทั้งหมด\n\n"
-                "*ควรโพสต์ในห้องที่เห็นเฉพาะแอดมิน (คนอื่นกดก็ใช้ไม่ได้)*"
-            ),
-            color=COLOR_MAIN,
+        embed = panel_embed(
+            "🛠️ Pandora · เมนูแอดมิน",
+            "กดปุ่มได้เลย ผลลัพธ์จะเห็นเฉพาะคนกด",
+            [
+                ("📊 ดูข้อมูล", [
+                    ("📊 สรุปยอดรอบนี้", "รายรับ · ส่วนแบ่งพนักงาน · ยอดโอนรายคน"),
+                    ("🕒 ชั่วโมงงาน", "ชั่วโมงทำงานของพนักงานรอบนี้"),
+                    ("🟢 มาทำงานวันนี้", "ใครเข้างาน รับงานแบบไหน / ไม่รับใคร"),
+                ]),
+                ("🧰 จัดการ", [
+                    ("🏆 Top Donate", "อันดับและประกาศผลประจำเดือน"),
+                    ("⚙️ ตั้งค่าร้าน", "ห้อง · บริการ & ราคา · ส่วนแบ่ง · ชำระเงิน · VIP"),
+                    ("🪙 เหรียญ Pandora", "ดู/ปรับเหรียญ · คูปอง · อีเวนต์ · รางวัล"),
+                    ("✏️ แก้เวลาเข้างาน", "แก้กะล่าสุด หรือเพิ่มกะที่ลืมกด"),
+                    ("✂️ ตัดรอบทันที", "สรุปยอดตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้"),
+                ]),
+                ("🩺 ระบบ", [
+                    ("🩺 สถานะระบบ", "ห้อง · Role · Google Sheets · งานค้าง"),
+                    ("🔄 โหลด config ใหม่", "ใช้ค่าใน config.json ล่าสุดทันที"),
+                    ("📖 คำสั่งทั้งหมด", "รายการ slash command ของบอท"),
+                ]),
+            ],
+            footer="ควรโพสต์ในห้องที่เห็นเฉพาะแอดมิน (คนอื่นกดก็ใช้ไม่ได้)",
+            guild=interaction.guild,
         )
         await interaction.channel.send(embed=embed, view=AdminPanel())
 
