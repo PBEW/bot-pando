@@ -125,7 +125,8 @@ class SettingsHome(AdminView):
                 f"🛎️ **บริการ & ราคา** — {len([s for s in cfg.services if not s.get('hidden')])} รายการ\n"
                 f"💰 **ส่วนแบ่งพนักงาน** — ค่าเริ่มต้น {cfg.get('revenue_share.default_staff_percent', 60)}%\n"
                 "💳 **การชำระเงิน** — พร้อมเพย์ / QR\n"
-                "🔧 **อื่นๆ** — โดเนท, Top Donate, บิลค้าง, เวลาตัดยอด\n\n"
+                "🔧 **อื่นๆ** — โดเนท, Top Donate, บิลค้าง, เวลาตัดยอด\n"
+                f"💎 **VIP** — {'🟢 เปิด' if cfg.vip_enabled else '⚪ ปิด'} · ราคา/อายุแพ็กเกจ, Role, สิทธิ์\n\n"
                 "*ทุกการแก้ไขจะแจ้งเข้าห้องแอดมิน · เพิ่ม/ลบบริการแล้ว แผงเปิดบิลจะอัปเดตเองตอนกดครั้งถัดไป*"
             ),
             color=COLOR_MAIN,
@@ -139,6 +140,7 @@ class SettingsHome(AdminView):
             discord.SelectOption(label="ส่วนแบ่งพนักงาน", value="share", emoji="💰"),
             discord.SelectOption(label="การชำระเงิน", value="payment", emoji="💳"),
             discord.SelectOption(label="อื่นๆ", value="other", emoji="🔧"),
+            discord.SelectOption(label="VIP", value="vip", emoji="💎"),
         ],
     )
     async def pick(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
@@ -152,6 +154,9 @@ class SettingsHome(AdminView):
             await interaction.response.edit_message(embed=view.embed(), view=view)
         elif choice == "share":
             view = ShareView(cfg)
+            await interaction.response.edit_message(embed=view.embed(), view=view)
+        elif choice == "vip":
+            view = VipSettingsView(cfg)
             await interaction.response.edit_message(embed=view.embed(), view=view)
         elif choice == "payment":
             await interaction.response.send_modal(PaymentModal(cfg))
@@ -912,6 +917,123 @@ class OtherModal(discord.ui.Modal, title="ตั้งค่าอื่นๆ")
             embed=discord.Embed(description="✅ บันทึกแล้ว\n" + "\n".join(f"• {c}" for c in changed), color=COLOR_OK),
             ephemeral=True,
         )
+
+
+# ======================================================================= VIP
+class VipSettingsView(AdminView):
+    """เปิด/ปิดระบบ VIP และแก้แพ็กเกจหลัก (ระดับแรก + แพ็กเกจแรก) / Role / สิทธิ์เพิ่มเวลา / Free Date"""
+
+    def __init__(self, cfg) -> None:
+        super().__init__(timeout=600)
+        self.cfg = cfg
+        self.toggle.label = "ปิดระบบ VIP" if cfg.vip_enabled else "เปิดระบบ VIP"
+        self.toggle.style = discord.ButtonStyle.danger if cfg.vip_enabled else discord.ButtonStyle.success
+        self.add_item(BackButton(row=1))
+
+    def embed(self) -> discord.Embed:
+        from cogs.vip import perks_text
+        from core.vip_logic import vip_benefit
+
+        cfg = self.cfg
+        tier = (cfg.vip_tiers or [{}])[0]
+        pkg = (cfg.vip_packages or [{}])[0]
+        role_id = int(tier.get("role_id") or 0)
+        bonus = vip_benefit(cfg, "bonus_minutes") or {}
+        stack = vip_benefit(cfg, "stack_services") or []
+        embed = discord.Embed(
+            title="💎 ตั้งค่า VIP",
+            description=(
+                f"สถานะ: **{'🟢 เปิดใช้งาน' if cfg.vip_enabled else '⚪ ปิดอยู่'}**\n"
+                f"แพ็กเกจ: **{pkg.get('name', '-')}** — {pkg.get('price', 0):,.0f} บาท / {pkg.get('months', '-')} เดือน\n"
+                f"Role VIP: {f'<@&{role_id}>' if role_id else '⚠️ ยังไม่ตั้ง (ใส่ Role ID ที่ปุ่ม ✏️)'}\n"
+                "เพิ่มเวลาห้อง: "
+                + (", ".join(f"{cfg.service_name(k)} +{m} นาที" + (" (ซ้อนได้)" if k in stack else "") for k, m in bonus.items()) or "-")
+                + f"\nFree Date: วันละ {vip_benefit(cfg, 'free_date_per_day')} ครั้ง"
+                + "\n\n*เปิดระบบครั้งแรก บอทเติมแพ็กเกจ Pandora VIP 6 เดือน 365 บาท + บริการ VIP Free Date ให้อัตโนมัติ "
+                "แล้วกด `/panel_request` ใหม่เพื่อให้ปุ่ม VIP ขึ้นในแผงลูกค้า*"
+            ),
+            color=COLOR_MAIN,
+        )
+        perks = perks_text(cfg)
+        if perks:
+            embed.add_field(name="สิทธิ์ที่แสดงให้ลูกค้าเห็น", value=perks[:1024], inline=False)
+        return embed
+
+    @discord.ui.button(label="เปิดระบบ VIP", emoji="🔌", row=0)
+    async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        from cogs.vip import ensure_vip_defaults
+
+        on = not self.cfg.vip_enabled
+        self.cfg.data.setdefault("features", {})["vip"] = on
+        if on:
+            ensure_vip_defaults(self.cfg)
+        _save(interaction)
+        await log_change(interaction.client, interaction.user, f"{'เปิด' if on else 'ปิด'}ระบบ VIP")
+        view = VipSettingsView(self.cfg)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+    @discord.ui.button(label="แก้แพ็กเกจ / Role / สิทธิ์", emoji="✏️", style=discord.ButtonStyle.primary, row=0)
+    async def edit(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        from cogs.vip import ensure_vip_defaults
+
+        ensure_vip_defaults(self.cfg)
+        await interaction.response.send_modal(VipModal(self.cfg))
+
+
+class VipModal(discord.ui.Modal, title="แก้แพ็กเกจ VIP"):
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        from core.vip_logic import vip_benefit
+
+        tier, pkg = cfg.vip_tiers[0], cfg.vip_packages[0]
+        bonus = vip_benefit(cfg, "bonus_minutes") or {}
+        self.price = discord.ui.TextInput(label="ราคา (บาท)", default=f"{float(pkg.get('price', 365)):g}", max_length=7)
+        self.months = discord.ui.TextInput(label="อายุแพ็กเกจ (เดือน)", default=str(pkg.get("months", 6)), max_length=3)
+        self.role = discord.ui.TextInput(
+            label="Role ID ของ VIP (0 = ไม่ให้ Role)", default=str(tier.get("role_id") or 0), max_length=22
+        )
+        self.bonus = discord.ui.TextInput(
+            label="เพิ่มเวลาห้อง (นาที, 0 = ปิด)", default=str(max(bonus.values(), default=10)), max_length=3
+        )
+        self.free = discord.ui.TextInput(
+            label="Free Date ต่อวัน (ครั้ง, 0 = ปิด)",
+            default=str(vip_benefit(cfg, "free_date_per_day")),
+            max_length=2,
+        )
+        for item in (self.price, self.months, self.role, self.bonus, self.free):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cfg = interaction.client.cfg
+        try:
+            price = _num(self.price.value, lo=0, hi=100000, name="ราคา")
+            months = int(_num(self.months.value, lo=1, hi=60, name="อายุแพ็กเกจ"))
+            bonus = int(_num(self.bonus.value, lo=0, hi=240, name="เพิ่มเวลาห้อง"))
+            free = int(_num(self.free.value, lo=0, hi=10, name="Free Date ต่อวัน"))
+            role_text = self.role.value.strip() or "0"
+            if not role_text.isdigit():
+                raise ValueError("**Role ID** ต้องเป็นตัวเลข (คลิกขวาที่ Role → Copy Role ID)")
+            role_id = int(role_text)
+        except ValueError as exc:
+            await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
+            return
+        if role_id and (interaction.guild is None or interaction.guild.get_role(role_id) is None):
+            await interaction.response.send_message("⚠️ ไม่พบ Role ID นี้ในเซิร์ฟเวอร์ค่ะ", ephemeral=True)
+            return
+
+        pkg, tier = cfg.data["vip_packages"][0], cfg.data["vip_tiers"][0]
+        pkg.update(price=price, months=months, unit="month")
+        pkg["name"] = f"{tier.get('name', 'VIP')} {months} เดือน"
+        tier["role_id"] = role_id
+        benefits = cfg.data.setdefault("vip_benefits", {})
+        keys = list((benefits.get("bonus_minutes") or {}).keys()) or ["party_room", "bedroom", "karaoke"]
+        benefits["bonus_minutes"] = {k: bonus for k in keys}
+        benefits["free_date_per_day"] = free
+        _save(interaction)
+        summary = f"{pkg['name']} {price:,.0f} บาท · Role {role_id or '-'} · เพิ่มเวลา {bonus} นาที · Free Date {free}/วัน"
+        await log_change(interaction.client, interaction.user, f"แก้ VIP: {summary}")
+        view = VipSettingsView(cfg)
+        await interaction.response.edit_message(embed=view.embed(), view=view)
 
 
 # ==================================================================== ยืนยัน

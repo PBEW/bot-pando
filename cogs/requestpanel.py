@@ -10,6 +10,7 @@ from discord.ext import commands
 from core.coins import enabled as coin_enabled, label as coin_label, opt as coin_opt
 from core.embeds import COLOR_MAIN
 from core.utils import is_admin, purge_old_panels
+from core.vip_logic import perks_lines
 
 
 COMFORT_NOTE = (
@@ -158,7 +159,7 @@ class RequestPanel(discord.ui.View):
         await interaction.client.get_cog("CoinsCog").show_leaderboard(interaction)
 
     @discord.ui.button(
-        label="ซื้อ VIP / ต่ออายุ",
+        label="สมัคร VIP / ต่ออายุ",
         emoji="💎",
         style=discord.ButtonStyle.success,
         custom_id="olp:request:vip",
@@ -210,9 +211,13 @@ class RequestPanelCog(commands.Cog):
             ]
         if self.cfg.vip_enabled:
             lines += [
-                "💎 **ซื้อ VIP / ต่ออายุ** — เลือกแพ็กเกจ ใส่โค้ดส่วนลด และชำระเงินได้เอง",
+                "💎 **สมัคร VIP / ต่ออายุ** — สมัครเองได้เลย เลือกแพ็กเกจ ใส่โค้ดส่วนลด แล้วชำระเงินผ่าน QR ใน DM",
                 "🔍 **ตรวจสอบสิทธิ์ VIP** — ดูแพ็กเกจและวันหมดอายุของคุณ",
             ]
+            pkg = (self.cfg.vip_packages or [None])[0]
+            if pkg:
+                lines.append(f"　💎 **{pkg['name']}** เพียง **{float(pkg['price']):,.0f} บาท** — สิทธิ์:")
+            lines += [f"　• {p}" for p in perks_lines(self.cfg)]
         lines.append(f"\n> 💜 **สำคัญ:** {COMFORT_NOTE}")
         lines.append("\n*กรุณาเปิดรับข้อความ DM จากสมาชิกในเซิร์ฟเวอร์ก่อนใช้งานนะคะ*")
 
@@ -232,7 +237,7 @@ class RequestPanelCog(commands.Cog):
 
 
 async def setup(bot: commands.Bot) -> None:
-    # ลงทะเบียนปุ่มเหรียญเสมอ — เปิด/ปิดระบบเหรียญระหว่างบอทรันอยู่ ปุ่มในแผงที่โพสต์ใหม่ก็ยังกดได้
-    # (ตอนระบบปิด ปุ่มเหรียญจะตอบว่าปิดใช้งานเอง)
-    bot.add_view(RequestPanel(bot.cfg.vip_enabled, coins_enabled=True))
+    # ลงทะเบียนปุ่มเหรียญ/VIP เสมอ — เปิด/ปิดระบบระหว่างบอทรันอยู่ ปุ่มในแผงที่โพสต์ใหม่ก็ยังกดได้
+    # (ตอนระบบปิด ปุ่มจะตอบว่าปิดใช้งานเอง)
+    bot.add_view(RequestPanel(vip_enabled=True, coins_enabled=True))
     await bot.add_cog(RequestPanelCog(bot))

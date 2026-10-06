@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .config import Config
 from .database import Database
-from .vip_logic import cycle_month_key
+from .vip_logic import cycle_month_key, vip_benefit, vip_customer_count
 
 
 @dataclass
@@ -97,12 +97,15 @@ async def quote_services(
     staff_count: int = 1,
     customer_count: int = 1,
     now_local: dt.datetime | None = None,
+    customer_ids: list[int] | None = None,
 ) -> Quote:
     """รวมราคาและระยะเวลาของบริการที่เลือก
 
     - key ซ้ำ = บริการคิดต่อหน่วย (per_unit เช่น Drink Friend 3 shot) คิดราคาทุกหน่วย แต่นับเวลาครั้งเดียว
     - บริการ multi_staff คิดค่าพนักงานที่เกิน included_staff เพิ่มคนละ extra_staff_price
     - บริการเสริม (addon_for) บวกเวลาเพิ่มตามบริการหลักที่เลือกคู่กัน (ใช้ค่าที่มากที่สุด)
+    - ลูกค้า VIP ได้เวลาห้องเพิ่ม (vip_benefits.bonus_minutes) — ห้องใน stack_services บวกตามจำนวน VIP ในบิล
+      (customer_ids = ลูกค้าทุกคนในบิล ไม่ส่งมา = นับเฉพาะคนจ่าย)
 
     ไม่ล็อกโควต้าให้ทันที — เป็นแค่การ "ดูตัวอย่าง" (นับสิทธิ์ที่ใช้ไปแล้วในเดือนนี้จริง
     แต่ยังไม่บันทึกเพิ่ม) ต้องเรียก reserve_quota_for_job แยกตอนสร้างบิลจริงเท่านั้น
@@ -118,6 +121,13 @@ async def quote_services(
     seen: set[str] = set()
     amounts: dict[str, float] = {}
     counted_customers: set[str] = set()
+    vip_count = 0
+    bonus_minutes: dict = {}
+    if cfg.vip_enabled:
+        bonus_minutes = vip_benefit(cfg, "bonus_minutes") or {}
+        if bonus_minutes:
+            vip_count = await vip_customer_count(db, customer_ids or [customer_id], now_local)
+    stack_services = set(vip_benefit(cfg, "stack_services") or []) if vip_count else set()
 
     for key in service_keys:
         svc = cfg.service(key)
@@ -132,6 +142,11 @@ async def quote_services(
             bonus = [int(m) for base, m in (svc.get("addon_for") or {}).items() if base in selected]
             if bonus:
                 duration += max(bonus)
+            vip_bonus = int(bonus_minutes.get(key, 0)) if vip_count else 0
+            if vip_bonus:
+                vip_bonus *= vip_count if key in stack_services else 1
+                duration += vip_bonus
+                lines.append((f"💎 VIP +{vip_bonus} นาที ({svc['name']})", 0.0))
 
         entry = cfg.service_pricing_entry(svc, tier)
 

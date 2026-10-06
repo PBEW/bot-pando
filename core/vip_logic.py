@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 import datetime as dt
 
 from .database import Database
@@ -81,3 +82,97 @@ def next_streak_months(*, current_streak: int, same_tier_renewal: bool, still_ac
     if same_tier_renewal and still_active:
         return current_streak + months_added
     return months_added
+
+
+# ------------------------------------------------------------ Pandora VIP
+# ค่าเริ่มต้นตามโปสเตอร์ Pandora VIP — บอทเติมลง config.json ให้ตอนเปิดระบบ VIP (แก้ได้ที่ ⚙️ ตั้งค่าร้าน → VIP)
+DEFAULT_VIP_TIERS = [
+    {"key": "pandora", "name": "Pandora VIP", "emoji": "💎", "rank": 1, "role_id": 0, "purchasable": True},
+]
+DEFAULT_VIP_PACKAGES = [
+    {"key": "pandora_6m", "tier": "pandora", "name": "Pandora VIP 6 เดือน", "emoji": "💎",
+     "price": 365, "unit": "month", "months": 6},
+]
+VIP_DATE_KEY = "vip_date"
+DEFAULT_VIP_BENEFITS = {
+    # เพิ่มเวลาห้องให้ลูกค้า VIP (นาที)
+    "bonus_minutes": {"party_room": 10, "bedroom": 10, "karaoke": 10},
+    # ห้องที่ VIP หลายคนในบิลเดียวบวกเวลาซ้อนกันได้ (VIP 2 คน = +20 นาที) — ห้องอื่นบวกครั้งเดียว
+    "stack_services": ["party_room"],
+    # Free Date กับพนักงานวันละครั้ง (นับตามวันทำงานของร้าน ตัดยอดตามเวลาตัดยอดเข้างาน)
+    "free_date_per_day": 1,
+    # สิทธิ์อื่นที่บอทไม่ได้คำนวณให้ (แสดงให้ลูกค้าเห็นอย่างเดียว) — สิทธิ์เพิ่มเวลา/Free Date บอทเขียนข้อความเองจากค่าด้านบน
+    "extra_perks": ["Avatar ไม่จำกัด Polygon"],
+}
+DEFAULT_VIP_DATE_SERVICE = {
+    "key": VIP_DATE_KEY, "name": "VIP Free Date", "emoji": "💎", "duration_minutes": 10, "require_room": False,
+    "vip_only": True, "pricing": {"normal": 0}, "staff_percent": 70, "category": "chill",
+    "description": "สิทธิ์สมาชิก VIP: Free Date กับพนักงาน 10 นาที วันละ 1 ครั้ง (เปลี่ยนพนักงานกลางคันไม่ได้)",
+}
+
+
+def vip_benefit(cfg, key: str):
+    return (cfg.get("vip_benefits") or {}).get(key, DEFAULT_VIP_BENEFITS[key])
+
+
+def shop_day_start(cfg, now_local: dt.datetime) -> dt.datetime:
+    """จุดเริ่ม "วันทำงาน" ของร้าน = เวลาตัดยอดเข้างาน (attendance.day_cutoff_hour, ค่าเริ่มต้นตี 1) ล่าสุด"""
+    hour = int(cfg.get("attendance.day_cutoff_hour", 1))
+    start = now_local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if start > now_local:
+        start -= dt.timedelta(days=1)
+    return start
+
+
+def perks_lines(cfg) -> list[str]:
+    """ข้อความสิทธิ์ VIP สำหรับแสดงลูกค้า (สร้างจากค่าตั้งค่าจริง แก้ค่าแล้วข้อความเปลี่ยนตาม)"""
+    lines = list(vip_benefit(cfg, "extra_perks") or [])
+    bonus = {k: int(m) for k, m in (vip_benefit(cfg, "bonus_minutes") or {}).items() if int(m) > 0}
+    stack = [k for k in vip_benefit(cfg, "stack_services") or [] if k in bonus]
+    if bonus:
+        names = ", ".join(f"{cfg.service_name(k)} +{m} นาที" for k, m in bonus.items())
+        lines.append(f"เพิ่มเวลาเข้าห้อง {names}")
+    for key in stack:
+        lines.append(
+            f"เพิ่มเวลาซ้อนกันได้เฉพาะ {cfg.service_name(key)} "
+            f"(ลูกค้า VIP 2 ท่านเข้าห้องด้วยกัน = +{bonus[key] * 2} นาที)"
+        )
+    date_svc = cfg.service(VIP_DATE_KEY)
+    per_day = int(vip_benefit(cfg, "free_date_per_day"))
+    if date_svc and per_day > 0:
+        lines.append(
+            f"Free Date กับพนักงาน {int(date_svc.get('duration_minutes', 10))} นาที ได้ {per_day} ครั้ง "
+            "ทุกวันที่ร้านเปิดทำการ (ขอเปลี่ยนพนักงานกลางคันไม่ได้)"
+        )
+    return lines
+
+
+async def vip_customer_count(db: Database, customer_ids: list[int], now_local: dt.datetime) -> int:
+    """จำนวนลูกค้าในบิลที่มี VIP ใช้งานอยู่"""
+    count = 0
+    for uid in dict.fromkeys(customer_ids):
+        if await db.active_vip_member(uid, to_iso(now_local)):
+            count += 1
+    return count
+
+
+async def vip_only_problem(cfg, db: Database, service_keys: list[str], customer_id: int, now_local: dt.datetime) -> str | None:
+    """ตรวจบริการเฉพาะ VIP (Free Date): ต้องเป็น VIP และใช้ได้ไม่เกินวันละ free_date_per_day ครั้ง"""
+    vip_keys = [k for k in dict.fromkeys(service_keys) if (cfg.service(k) or {}).get("vip_only")]
+    if not vip_keys:
+        return None
+    if not cfg.vip_enabled or not await db.active_vip_member(customer_id, to_iso(now_local)):
+        return f"**{cfg.service_names(vip_keys)}** ใช้ได้เฉพาะลูกค้าที่เป็นสมาชิก VIP (คนจ่ายบิล) ค่ะ"
+    limit = int(vip_benefit(cfg, "free_date_per_day"))
+    if limit <= 0:
+        return "ตอนนี้ร้านปิดสิทธิ์ Free Date ของ VIP อยู่ค่ะ"
+    since = to_iso(shop_day_start(cfg, now_local))
+    rows = await db.fetchall(
+        "SELECT services FROM jobs WHERE customer_id = ? AND status != 'CANCELLED' AND created_at >= ?",
+        (customer_id, since),
+    )
+    for key in vip_keys:
+        used = sum(json.loads(r["services"] or "[]").count(key) for r in rows)
+        if used + service_keys.count(key) > limit:
+            return f"วันนี้ลูกค้าใช้สิทธิ์ **{cfg.service_name(key)}** ครบ {limit} ครั้งแล้วค่ะ (รีเซ็ตทุกวันทำการ)"
+    return None
