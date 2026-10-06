@@ -25,7 +25,7 @@ from core.utils import (
     fmt_date,
     fmt_time,
     from_iso,
-    is_admin,
+    is_reception,
     money,
     now_utc,
     send_dm,
@@ -90,8 +90,9 @@ class SlipDecisionButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:  # type: ignore[override]
         cog: PaymentsCog = interaction.client.get_cog("PaymentsCog")  # type: ignore[assignment]
-        if not is_admin(interaction.user, cog.cfg.admin_role_id):
-            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+        # ยืนยัน/ปฏิเสธสลิปได้ทั้งแอดมินและ Role รีเซปชั่น
+        if not is_reception(interaction.user, cog.cfg):
+            await interaction.response.send_message("เฉพาะแอดมิน / รีเซปชั่นเท่านั้นค่ะ", ephemeral=True)
             return
         if self.action == "ok":
             await cog.approve_slip(interaction, self.kind, self.ref_id)
