@@ -53,6 +53,40 @@ def panel_embed(
     return embed
 
 
+def progress_bar(current: float, target: float, width: int = 10) -> str:
+    """แถบความคืบหน้า ▰▰▰▱▱ (ใช้กับเหรียญสะสม ฯลฯ)"""
+    ratio = 0 if target <= 0 else max(0.0, min(current / target, 1.0))
+    filled = round(ratio * width)
+    return "▰" * filled + "▱" * (width - filled) + f" {ratio * 100:.0f}%"
+
+
+# ------------------------------------------------------------ ข้อความ DM
+def dm_embed(
+    title: str,
+    rows: list[tuple[str, str, str]] = (),
+    *,
+    lead: str | None = None,
+    note: str | None = None,
+    color: int = COLOR_MAIN,
+    footer: str | None = None,
+) -> discord.Embed:
+    """รูปแบบมาตรฐานของข้อความแจ้งเตือน (DM) — หัวข้อ · ข้อความนำ · รายการ ไอคอน+หัวข้อ+ค่า · กล่องหมายเหตุ
+
+    rows = [(ไอคอน, หัวข้อ, ค่า), ...] เช่น ("🧾", "บิล", "`#12`")
+    """
+    parts = []
+    if lead:
+        parts.append(lead)
+    if rows:
+        parts.append("\n".join(f"{icon} **{label}**　{value}" for icon, label, value in rows))
+    if note:
+        parts.append("\n".join(f"> {line}" for line in note.splitlines()))
+    embed = discord.Embed(title=title, description="\n\n".join(parts)[:4096] or None, color=color)
+    if footer:
+        embed.set_footer(text=footer)
+    return embed
+
+
 # ---------------------------------------------------------------- บิล
 def job_embed(cfg: Config, job: dict, *, title: str, color: int = COLOR_MAIN) -> discord.Embed:
     start = from_iso(job["start_time"])

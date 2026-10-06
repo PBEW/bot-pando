@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core import coins
-from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, COLOR_OK
+from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, COLOR_OK, dm_embed, progress_bar
 from core.utils import display_name, from_iso, is_admin, money, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.coins")
@@ -121,15 +121,27 @@ class CoinAdminView(AdminOnly):
             color=COLOR_GOLD if on else COLOR_DANGER,
         )
         embed.add_field(
-            name="ตั้งค่าปัจจุบัน",
+            name="💱 อัตราได้เหรียญ",
             value=(
-                f"1 เหรียญ / {coins.opt(cfg, 'baht_per_coin')} บาท · โดเนท 1 / {coins.opt(cfg, 'donate_baht_per_coin')} บาท\n"
-                f"มาครั้งแรก +{coins.opt(cfg, 'first_visit_bonus')} · รีวิว +{coins.opt(cfg, 'review_bonus')} · "
-                f"Top Donate +{coins.opt(cfg, 'top_donate_bonus')}\n"
-                f"หมดอายุเมื่อไม่มา {coins.opt(cfg, 'expire_inactive_days')} วัน · "
-                + ("อีเวนต์: ปิด" if mult <= 1 else f"🎉 อีเวนต์ ×{mult:g} อยู่")
+                f"🧾 บิล　1 เหรียญ / {coins.opt(cfg, 'baht_per_coin')} บาท\n"
+                f"💜 โดเนท　1 เหรียญ / {coins.opt(cfg, 'donate_baht_per_coin')} บาท\n"
+                + ("🎉 อีเวนต์　ปิด" if mult <= 1 else f"🎉 อีเวนต์　**×{mult:g}** อยู่")
             ),
-            inline=False,
+            inline=True,
+        )
+        embed.add_field(
+            name="🎁 โบนัส",
+            value=(
+                f"🆕 มาครั้งแรก　+{coins.opt(cfg, 'first_visit_bonus')}\n"
+                f"💖 รีวิว　+{coins.opt(cfg, 'review_bonus')}\n"
+                f"🏆 Top Donate　+{coins.opt(cfg, 'top_donate_bonus')}"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="⌛ หมดอายุ",
+            value=f"ไม่มาใช้บริการ {coins.opt(cfg, 'expire_inactive_days')} วัน",
+            inline=True,
         )
         if self.member:
             uid = self.member.id
@@ -314,16 +326,23 @@ class RewardEditView(AdminOnly):
 
     def embed(self) -> discord.Embed:
         cfg = self.parent.cog.cfg
-        return discord.Embed(
+        embed = discord.Embed(
             title="🎁 จัดการรางวัล",
             description="\n".join(
-                f"{r.get('emoji', '')} **{r['name']}** — {r['cost']} เหรียญ · {coins.REWARD_TYPES.get(r.get('type'), r.get('type'))}"
+                f"{r.get('emoji', '')} **{r['name']}** · `{int(r['cost']):,}` เหรียญ\n"
+                f"┗ {coins.REWARD_TYPES.get(r.get('type'), r.get('type'))}"
                 for r in coins.rewards(cfg)
-            )
-            + "\n\nเลือกรางวัล → ✏️ แก้ / 🗑️ เลิกแลก · ➕ เพิ่มรางวัลใหม่ · 🃏 แก้รายการท่าแกล้ง\n"
-            "*เลิกแลกแล้ว คูปองที่ลูกค้าแลกไปก่อนหน้ายังใช้ได้จนหมดอายุ*",
+            )[:3500]
+            or "ยังไม่มีรางวัล",
             color=COLOR_GOLD,
         )
+        embed.add_field(
+            name="🧰 วิธีใช้",
+            value="เลือกรางวัล → ✏️ แก้ / 🗑️ เลิกแลก\n➕ เพิ่มรางวัลใหม่ · 🃏 แก้รายการท่าแกล้ง",
+            inline=False,
+        )
+        embed.set_footer(text="เลิกแลกแล้ว คูปองที่ลูกค้าแลกไปก่อนหน้ายังใช้ได้จนหมดอายุ")
+        return embed
 
     async def _on_pick(self, interaction: discord.Interaction) -> None:
         value = self.select.values[0]
@@ -531,16 +550,23 @@ class PrankSetupView(discord.ui.View):
         self.add_item(self.performer_select)
 
     def embed(self) -> discord.Embed:
-        return discord.Embed(
-            title=f"🃏 {self.item['name']} — {self.item['cost']} เหรียญ",
-            description=(
-                "เลือกท่าแกล้ง → คนที่จะโดนแกล้ง → พนักงานที่จะไปแกล้ง แล้วกด **ส่งการ์ด**\n"
-                "• แกล้งได้: เพื่อนที่มาด้วยกัน / CEO / พนักงานที่เปิดรับให้แกล้งวันนี้\n"
-                "• พนักงานปฏิเสธได้ — ถ้าปฏิเสธหรือไม่ตอบใน 2 ชม. คืนเหรียญอัตโนมัติ\n"
-                "*ห้ามแกล้งลูกค้าคนอื่นที่ไม่รู้เรื่อง · ไม่ใช่เรื่อง 18+ หรือทำให้อับอายจริง*"
-            ),
+        embed = discord.Embed(
+            title=f"🃏 {self.item['name']} · {self.item['cost']} เหรียญ",
+            description="1️⃣ เลือกท่าแกล้ง　2️⃣ เลือกคนที่จะโดนแกล้ง　3️⃣ เลือกพนักงาน → กด **ส่งการ์ด**",
             color=COLOR_GOLD,
         )
+        embed.add_field(
+            name="✅ แกล้งได้",
+            value="เพื่อนที่มาด้วยกัน · CEO · พนักงานที่เปิดรับให้แกล้งวันนี้",
+            inline=False,
+        )
+        embed.add_field(
+            name="↩️ คืนเหรียญอัตโนมัติ",
+            value="พนักงานปฏิเสธ หรือไม่ตอบภายใน 2 ชั่วโมง",
+            inline=False,
+        )
+        embed.set_footer(text="ห้ามแกล้งลูกค้าที่ไม่รู้เรื่อง · ไม่ใช่เรื่อง 18+ หรือทำให้อับอายจริง")
+        return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.user.id
@@ -686,9 +712,10 @@ class CoinsCog(commands.Cog):
         await send_dm(
             self.bot,
             user_id,
-            embed=discord.Embed(
-                title="💎 คุณคือ Pandora Collector!",
-                description=f"สะสม {coins.label(self.cfg)} ครบ {need:,} เหรียญแล้ว ขอบคุณที่อยู่กับเรานะคะ 💜",
+            embed=dm_embed(
+                "💎 คุณคือ Pandora Collector!",
+                [("🏅", "สะสมครบ", f"**{need:,}** เหรียญ")],
+                lead="ขอบคุณที่อยู่กับเรามาตลอดนะคะ 💜",
                 color=COLOR_GOLD,
             ),
         )
@@ -727,9 +754,11 @@ class CoinsCog(commands.Cog):
             await send_dm(
                 self.bot,
                 uid,
-                embed=discord.Embed(
-                    title=f"{coins.opt(self.cfg, 'emoji')} ได้รับ{coins.opt(self.cfg, 'name')}",
-                    description="\n".join(lines) + f"\nคงเหลือ **{await coins.balance(self.db, uid):,}** เหรียญ",
+                embed=dm_embed(
+                    f"{coins.opt(self.cfg, 'emoji')} ได้รับ{coins.opt(self.cfg, 'name')}",
+                    [("💰", "คงเหลือ", f"**{await coins.balance(self.db, uid):,}** เหรียญ")],
+                    lead="\n".join(f"🟢 {line}" for line in lines),
+                    note="ดูเหรียญและแลกรางวัลได้ที่ 🪙 เหรียญของฉัน ในแผงบริการ",
                     color=COLOR_GOLD,
                 ),
             )
@@ -778,31 +807,42 @@ class CoinsCog(commands.Cog):
         bal = await coins.balance(self.db, uid)
         life = await coins.lifetime(self.db, uid)
         embed = discord.Embed(title=f"{coins.label(self.cfg)} ของฉัน", color=COLOR_GOLD)
-        embed.add_field(name="คงเหลือ", value=f"**{bal:,}** เหรียญ", inline=True)
-        embed.add_field(name="สะสมตลอดชีพ", value=f"{life:,} เหรียญ", inline=True)
+        embed.add_field(name="💰 คงเหลือ", value=f"**{bal:,}** เหรียญ", inline=True)
+        embed.add_field(name="🏅 สะสมตลอดชีพ", value=f"{life:,} เหรียญ", inline=True)
+        mult = float(coins.opt(self.cfg, "event_multiplier"))
+        if mult > 1:
+            embed.add_field(name="🎉 อีเวนต์", value=f"ได้เหรียญ ×{mult:g}", inline=True)
 
         nxt = next((r for r in coins.rewards(self.cfg) if int(r["cost"]) > bal), None)
         if nxt:
             need = int(nxt["cost"]) - bal
             rate = int(coins.opt(self.cfg, "baht_per_coin"))
             embed.add_field(
-                name="รางวัลถัดไป",
-                value=f"{nxt.get('emoji', '')} {nxt['name']} — อีก **{need}** เหรียญ (ใช้บริการอีกประมาณ {need * rate:,} บาท)",
+                name="🎯 รางวัลถัดไป",
+                value=(
+                    f"{nxt.get('emoji', '')} **{nxt['name']}** · {int(nxt['cost']):,} เหรียญ\n"
+                    f"{progress_bar(bal, int(nxt['cost']))}\n"
+                    f"┗ อีก **{need:,}** เหรียญ (ใช้บริการอีกประมาณ {need * rate:,} บาท)"
+                ),
                 inline=False,
             )
         collector = int(coins.opt(self.cfg, "collector_lifetime"))
         if life < collector:
-            embed.add_field(name="💎 Pandora Collector", value=f"สะสมตลอดชีพอีก {collector - life:,} เหรียญ", inline=False)
+            embed.add_field(
+                name="💎 Pandora Collector",
+                value=f"{progress_bar(life, collector)}\n┗ สะสมตลอดชีพอีก {collector - life:,} เหรียญ",
+                inline=False,
+            )
 
         vouchers = await coins.active_vouchers(self.db, uid)
         if vouchers:
             embed.add_field(
                 name="🎟️ คูปองที่ใช้ได้",
                 value="\n".join(
-                    f"`V{v['id']}` {(coins.reward(self.cfg, v['reward_key']) or {}).get('name', v['reward_key'])} — "
-                    f"หมดอายุ {_fmt_date(v['expires_at'], self.cfg.tz)}"
-                    for v in vouchers[:10]
-                ),
+                    f"`V{v['id']}` **{(coins.reward(self.cfg, v['reward_key']) or {}).get('name', v['reward_key'])}**\n"
+                    f"┗ หมดอายุ {_fmt_date(v['expires_at'], self.cfg.tz)}"
+                    for v in vouchers[:8]
+                )[:1024],
                 inline=False,
             )
         history = await self.db.fetchall(
@@ -810,11 +850,13 @@ class CoinsCog(commands.Cog):
         )
         if history:
             embed.add_field(
-                name="ล่าสุด",
-                value="\n".join(f"`{h['delta']:+d}` {h['reason']}" for h in history)[:1024],
+                name="🧾 รายการล่าสุด",
+                value="\n".join(
+                    f"{'🟢' if h['delta'] > 0 else '🔴'} `{h['delta']:+,d}` {h['reason']}" for h in history
+                )[:1024],
                 inline=False,
             )
-        embed.set_footer(text=self.rules_text())
+        embed.set_footer(text="📌 " + self.rules_text())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def rules_text(self) -> str:
@@ -836,16 +878,26 @@ class CoinsCog(commands.Cog):
             await interaction.response.send_message("ตอนนี้ยังไม่มีรางวัลให้แลกค่ะ รอแอดมินเพิ่มรางวัลนะคะ", ephemeral=True)
             return
         bal = await coins.balance(self.db, interaction.user.id)
-        lines = [
-            f"{r.get('emoji', '')} **{r['name']}** — {r['cost']} เหรียญ" + (" ✅" if bal >= int(r["cost"]) else "")
-            for r in coins.rewards(self.cfg)
-        ]
+        ready = [r for r in coins.rewards(self.cfg) if bal >= int(r["cost"])]
+        later = [r for r in coins.rewards(self.cfg) if bal < int(r["cost"])]
+
+        def row(r: dict) -> str:
+            return f"{r.get('emoji', '')} **{r['name']}** · `{int(r['cost']):,}` เหรียญ"
+
         embed = discord.Embed(
             title="🎁 แลกรางวัล",
-            description=f"คุณมี **{bal:,}** เหรียญ\n\n" + "\n".join(lines)
-            + "\n\n*รางวัลที่ต้องนัดวัน (CEO / Hall of Fame / Host Night) แอดมินจะติดต่อกลับ · ส่วนลดแจ้งแอดมินตอนจอง*",
+            description=f"💰 คุณมี **{bal:,}** เหรียญ\nเลือกรางวัลจากเมนูด้านล่าง แล้วกด **ยืนยันแลก**",
             color=COLOR_GOLD,
         )
+        if ready:
+            embed.add_field(name="✅ แลกได้เลย", value="\n".join(map(row, ready))[:1024], inline=False)
+        if later:
+            embed.add_field(
+                name="🔒 สะสมเพิ่มอีกนิด",
+                value="\n".join(f"{row(r)}\n┗ ขาดอีก {int(r['cost']) - bal:,}" for r in later)[:1024],
+                inline=False,
+            )
+        embed.set_footer(text="รางวัลนัดวัน (CEO / Hall of Fame / Host Night) แอดมินติดต่อกลับ · ส่วนลดแจ้งแอดมินตอนจอง")
         await interaction.response.send_message(embed=embed, view=RedeemView(self, interaction.user, bal), ephemeral=True)
 
     async def redeem(self, interaction: discord.Interaction, reward_key: str) -> None:
@@ -874,9 +926,10 @@ class CoinsCog(commands.Cog):
         result = await self._deliver(interaction.user, item, voucher_id, expires)
         await interaction.edit_original_response(
             content=None,
-            embed=discord.Embed(
-                title=f"🎁 แลก {item['name']} แล้ว",
-                description=f"{result}\nคงเหลือ **{new_balance:,}** เหรียญ",
+            embed=dm_embed(
+                f"🎁 แลก {item['name']} แล้ว",
+                [("🎟️", "คูปอง", f"`V{voucher_id}`"), ("💰", "คงเหลือ", f"**{new_balance:,}** เหรียญ")],
+                lead=result,
                 color=COLOR_OK,
             ),
             view=None,
@@ -1009,14 +1062,16 @@ class CoinsCog(commands.Cog):
         balance_left = await self._change(uid, -cost, "REDEEM", f"การ์ดแกล้ง: {prank[:60]}", ref=f"voucher:{voucher_id}")
 
         bonus = float(item.get("staff_bonus", 0))
-        embed = discord.Embed(
-            title="🃏 มีการ์ดแกล้งมาถึงคุณ!",
-            description=(
-                f"ลูกค้า <@{uid}> ขอให้คุณไปแกล้ง <@{target.id}>\n"
-                f"**ท่าแกล้ง:** {prank}\n\n"
-                f"กด **รับ** ถ้าสะดวก (ได้โบนัส {bonus:,.0f} บาท) หรือ **ปฏิเสธ** ได้เลย ลูกค้าจะได้เหรียญคืน\n"
-                "*ห้ามทำเกินขอบเขต: ไม่ทำให้อับอายจริง ไม่ใช่เรื่องส่วนตัว ไม่ใช่ 18+*"
-            ),
+        embed = dm_embed(
+            "🃏 มีการ์ดแกล้งมาถึงคุณ!",
+            [
+                ("👤", "จากลูกค้า", f"<@{uid}>"),
+                ("🎯", "ไปแกล้ง", f"<@{target.id}>"),
+                ("🎭", "ท่าแกล้ง", prank),
+                ("💵", "โบนัส", f"**{bonus:,.0f} บาท** ถ้ากดรับ"),
+            ],
+            lead="กด **รับ** ถ้าสะดวก หรือ **ปฏิเสธ** ได้เลย (ลูกค้าได้เหรียญคืน)",
+            note="ห้ามทำเกินขอบเขต: ไม่ทำให้อับอายจริง · ไม่ใช่เรื่องส่วนตัว · ไม่ใช่ 18+",
             color=COLOR_GOLD,
         )
         view = discord.ui.View(timeout=None)
@@ -1031,12 +1086,10 @@ class CoinsCog(commands.Cog):
             return
         await interaction.edit_original_response(
             content=None,
-            embed=discord.Embed(
-                title="🃏 ส่งการ์ดแกล้งแล้ว",
-                description=(
-                    f"รอ <@{performer_id}> กดรับ — ถ้าปฏิเสธหรือไม่ตอบภายใน 2 ชั่วโมง คืนเหรียญอัตโนมัติ\n"
-                    f"คงเหลือ **{balance_left:,}** เหรียญ"
-                ),
+            embed=dm_embed(
+                "🃏 ส่งการ์ดแกล้งแล้ว",
+                [("💃", "รอพนักงาน", f"<@{performer_id}> กดรับ"), ("💰", "คงเหลือ", f"**{balance_left:,}** เหรียญ")],
+                note="ถ้าพนักงานปฏิเสธหรือไม่ตอบภายใน 2 ชั่วโมง คืนเหรียญให้อัตโนมัติ",
                 color=COLOR_OK,
             ),
             view=None,
@@ -1094,7 +1147,11 @@ class CoinsCog(commands.Cog):
             text = "❌ ปฏิเสธการ์ดแล้ว — คืนเหรียญให้ลูกค้าเรียบร้อย"
             customer_msg = "🃏 พนักงานไม่สะดวกรับการ์ดแกล้งนี้ คืนเหรียญให้แล้วนะคะ"
         await interaction.edit_original_response(content=text, embed=None, view=None)
-        await send_dm(self.bot, info["customer"], embed=discord.Embed(description=customer_msg, color=COLOR_GOLD))
+        await send_dm(
+            self.bot,
+            info["customer"],
+            embed=dm_embed("🃏 การ์ดแกล้ง", lead=customer_msg, color=COLOR_OK if accepted else COLOR_GOLD),
+        )
         await self._notify_admin(f"🃏 การ์ดแกล้ง `V{voucher_id}`: {'รับแล้ว' if accepted else 'ปฏิเสธ (คืนเหรียญ)'}")
 
     def _is_staff(self, user: discord.abc.User) -> bool:
@@ -1111,12 +1168,16 @@ class CoinsCog(commands.Cog):
         lines = []
         for i, row in enumerate(rows):
             name = await display_name(self.bot, guild, row["user_id"])
-            lines.append(f"{medals[i] if i < 3 else f'`#{i + 1}`'} **{name}** — {int(row['total']):,} เหรียญ")
+            lines.append(f"{medals[i] if i < 3 else f'`#{i + 1}`'} **{name}**\n┗ {int(row['total']):,} เหรียญ")
         embed = discord.Embed(
             title=f"🏅 อันดับนักสะสม{coins.opt(self.cfg, 'name')}",
             description="\n".join(lines) or "ยังไม่มีใครสะสมเหรียญค่ะ",
             color=COLOR_GOLD,
         )
+        mine = next((i for i, r in enumerate(rows) if r["user_id"] == interaction.user.id), None)
+        if mine is None:
+            life = await coins.lifetime(self.db, interaction.user.id)
+            embed.add_field(name="👤 ของคุณ", value=f"สะสมตลอดชีพ {life:,} เหรียญ · ยังไม่ติด Top {len(rows) or 10}", inline=False)
         embed.set_footer(text="นับยอดสะสมตลอดชีพ — แลกของแล้วอันดับไม่ลด")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -1133,7 +1194,11 @@ class CoinsCog(commands.Cog):
             if info:
                 await send_dm(
                     self.bot, info["customer"],
-                    embed=discord.Embed(description="🃏 การ์ดแกล้งไม่มีพนักงานรับภายในเวลา คืนเหรียญให้แล้วนะคะ", color=COLOR_GOLD),
+                    embed=dm_embed(
+                        "🃏 การ์ดแกล้งหมดเวลา",
+                        lead="ไม่มีพนักงานรับภายใน 2 ชั่วโมง คืนเหรียญให้แล้วนะคะ 💜",
+                        color=COLOR_GOLD,
+                    ),
                 )
 
         expired = await self.db.fetchall(

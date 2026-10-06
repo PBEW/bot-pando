@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core import coins
-from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, job_embed, panel_embed
+from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, job_embed, panel_embed
 from core.pricing import (
     job_staff_ids,
     job_staff_split,
@@ -1125,13 +1125,13 @@ class ReceptionCog(commands.Cog):
             await send_dm(
                 self.bot,
                 sid,
-                embed=discord.Embed(
-                    title="⏱️ ลูกค้าต่อเวลา",
-                    description=(
-                        f"บิล `#{parent_id}` ต่อเวลา +{quote.duration_minutes} นาที "
-                        f"({self.cfg.service_names(service_keys)})\n"
-                        f"เวลาจบใหม่: {discord_ts(new_end)}"
-                    ),
+                embed=dm_embed(
+                    "⏱️ ลูกค้าต่อเวลา",
+                    [
+                        ("🧾", "บิล", f"`#{parent_id}`"),
+                        ("➕", "ต่อเวลา", f"+{quote.duration_minutes} นาที ({self.cfg.service_names(service_keys)})"),
+                        ("🔴", "จบใหม่", discord_ts(new_end)),
+                    ],
                     color=COLOR_INFO,
                 ),
             )
@@ -1198,8 +1198,10 @@ class ReceptionCog(commands.Cog):
                 await send_dm(
                     self.bot,
                     sid,
-                    embed=discord.Embed(
-                        description=f"✅ พนักงานรับงานบิล `#{job_id}` ครบทุกคนแล้ว — ส่งยอดชำระให้ลูกค้าเรียบร้อย",
+                    embed=dm_embed(
+                        "✅ ทีมรับงานครบแล้ว",
+                        [("🧾", "บิล", f"`#{job_id}`")],
+                        note="ส่งยอดชำระให้ลูกค้าเรียบร้อย รอลูกค้าโอนนะคะ",
                         color=COLOR_OK,
                     ),
                 )
