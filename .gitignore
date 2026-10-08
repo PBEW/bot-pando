@@ -1,7 +1,8 @@
 .venv/
 __pycache__/
 *.pyc
-.claude/
+.claude/*
+!.claude/skills/
 
 # ความลับ / ข้อมูลจริง
 .env
