@@ -193,6 +193,25 @@ CREATE TABLE IF NOT EXISTS daily_checkin (
     PRIMARY KEY (day, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS rollcall_boards (
+    message_id  INTEGER PRIMARY KEY,   -- ข้อความกระดานใน Discord
+    channel_id  INTEGER NOT NULL,
+    topic       TEXT    NOT NULL,      -- หัวข้อ เช่น ประชุมทีม / อีเวนต์คืนวันเสาร์
+    when_text   TEXT,                  -- วันเวลา (ข้อความอิสระ)
+    staff_only  INTEGER NOT NULL DEFAULT 0,
+    closed      INTEGER NOT NULL DEFAULT 0,
+    created_by  INTEGER NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rollcall_answers (
+    message_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    status     TEXT    NOT NULL,   -- YES | MAYBE | NO
+    answered_at TEXT   NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_user ON attendance(user_id, clock_out);
 CREATE INDEX IF NOT EXISTS idx_attendance_in ON attendance(clock_in);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);

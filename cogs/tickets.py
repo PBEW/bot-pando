@@ -261,7 +261,7 @@ class TicketsCog(commands.Cog):
         guild = self.bot.get_guild(ticket["guild_id"])
         name = await display_name(self.bot, guild, ticket["customer_id"])
         payments = self.bot.get_cog("PaymentsCog")
-        await payments.notify_admin_text(f"🔒 ปิดรายการสอบถาม `T#{ticket_id}` ({name}) — {reason}", topic="ticket")
+        await payments.notify_admin_text(f"🔒 ปิดรายการสอบถาม `T#{ticket_id}` ({name}) · {reason}", topic="ticket")
 
 
 async def setup(bot: commands.Bot) -> None:

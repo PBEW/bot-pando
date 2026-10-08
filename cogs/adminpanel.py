@@ -82,7 +82,7 @@ class VipGrantView(AdminOnlyView):
         self.member = _member(interaction, select.values[0])
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
-    @discord.ui.select(placeholder="2) ระยะเวลา (1 วัน – 6 เดือน)", row=1)
+    @discord.ui.select(placeholder="2) ระยะเวลา (1 วัน ถึง 6 เดือน)", row=1)
     async def duration_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
         self.duration = select.values[0]
         for opt in select.options:
@@ -200,10 +200,10 @@ HELP_TEXT = (
     "**🧾 บิล**\n"
     "`/bill info` ดูบิล · `/bill paid` ยืนยันชำระด้วยมือ · `/bill cancel` ยกเลิกบิล\n\n"
     "**💎 VIP**\n"
-    "`/vip_grant member days|months` มอบ VIP 1 วัน – 6 เดือน\n\n"
+    "`/vip_grant member days|months` มอบ VIP 1 วัน ถึง 6 เดือน\n\n"
     "**🧰 อื่น ๆ**\n"
     "`/top_donate` อันดับโดเนท · `/coins give|check|event` เหรียญ Pandora · `/menu` เมนูร้าน · `/attendance_fix` แก้เวลาเข้างาน · `/cutoff` ตัดรอบ · `/summary` สรุปยอด\n"
-    "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` โพสต์กระดานเช็คชื่อ · `/staff_today` มาทำงานวันนี้ · `/health` สถานะระบบ · `/sheets_format` จัดรูปแบบชีต · `/reload_config` โหลด config"
+    "`/attendance_report` ชั่วโมงงาน · `/daily_checkin` เช็คชื่อกิจกรรม/ประชุม · `/staff_today` มาทำงานวันนี้ · `/health` สถานะระบบ · `/sheets_format` จัดรูปแบบชีต · `/reload_config` โหลด config"
 )
 
 
@@ -308,7 +308,7 @@ class AdminPanel(discord.ui.View):
         cfg = interaction.client.cfg
         if not cfg.vip_enabled:
             await interaction.response.send_message(
-                "ระบบ VIP ยังปิดอยู่ค่ะ — เปิดที่ ⚙️ ตั้งค่าร้าน → 💎 VIP ก่อน", ephemeral=True
+                "ระบบ VIP ยังปิดอยู่ค่ะ เปิดที่ ⚙️ ตั้งค่าร้าน → 💎 VIP ก่อน", ephemeral=True
             )
             return
         view = VipGrantView(cfg)
@@ -350,7 +350,7 @@ class AdminPanelCog(commands.Cog):
                     ("🪙 เหรียญ Pandora", "ดู/ปรับเหรียญ · คูปอง · อีเวนต์ · รางวัล"),
                     ("✏️ แก้เวลาเข้างาน", "แก้กะล่าสุด หรือเพิ่มกะที่ลืมกด"),
                     ("✂️ ตัดรอบทันที", "สรุปยอดตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้"),
-                    ("💎 มอบ VIP", "ให้ VIP สมาชิก 1 วัน – 6 เดือน (ต่อจากวันหมดอายุเดิมได้)"),
+                    ("💎 มอบ VIP", "ให้ VIP สมาชิก 1 วัน ถึง 6 เดือน (ต่อจากวันหมดอายุเดิมได้)"),
                 ]),
                 ("🩺 ระบบ", [
                     ("🩺 สถานะระบบ", "ห้อง · Role · Google Sheets · งานค้าง"),

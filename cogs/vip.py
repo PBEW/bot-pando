@@ -330,7 +330,7 @@ class VipCog(commands.Cog):
             used = sum(json.loads(r["services"] or "[]").count(VIP_DATE_KEY) for r in rows)
             embed.add_field(
                 name="💎 Free Date วันนี้",
-                value=f"ใช้ไป {min(used, limit)}/{limit} ครั้ง — แจ้งแอดมินตอนจองได้เลยค่ะ" if used < limit
+                value=f"ใช้ไป {min(used, limit)}/{limit} ครั้ง แจ้งแอดมินตอนจองได้เลยค่ะ" if used < limit
                 else f"ใช้ครบ {limit}/{limit} ครั้งแล้ว (รีเซ็ตวันทำการถัดไป)",
                 inline=False,
             )
@@ -352,11 +352,11 @@ class VipCog(commands.Cog):
             if not isinstance(entry, dict):
                 continue
             if entry.get("unlimited"):
-                lines.append(f"• {svc['name']} — ไม่จำกัด")
+                lines.append(f"• {svc['name']} · ไม่จำกัด")
                 continue
             limit = int(entry.get("free_per_month", 0))
             used = await self.db.get_quota_used(user_id, svc["key"], cycle)
-            lines.append(f"• {svc['name']} — ใช้ไป {min(used, limit)}/{limit} ครั้ง")
+            lines.append(f"• {svc['name']} · ใช้ไป {min(used, limit)}/{limit} ครั้ง")
         return lines
 
     # ------------------------------------------------- คำนวณ+บันทึกสิทธิ์ (ใช้ร่วมกัน)
@@ -524,7 +524,7 @@ class VipCog(commands.Cog):
         )
         to_name = self.cfg.vip_tier_name(upgrade_to)
         embed = dm_embed(
-            "🎁 ลูกค้าสะสมครบ — รออนุมัติอัปเกรดฟรี",
+            "🎁 ลูกค้าสะสมครบ รออนุมัติอัปเกรดฟรี",
             [
                 ("👤", "ลูกค้า", f"<@{customer_id}>"),
                 ("🏅", "สะสม", f"**{tier_cfg['name']}** ต่อเนื่อง **{streak_months} เดือน**"),
@@ -634,10 +634,10 @@ class VipCog(commands.Cog):
         )
 
     # ----------------------------------------------------------- คำสั่ง
-    @app_commands.command(name="vip_grant", description="มอบ VIP ให้สมาชิก (แอดมิน) — 1 วัน ถึง 6 เดือน")
+    @app_commands.command(name="vip_grant", description="มอบ VIP ให้สมาชิก (แอดมิน) · 1 วัน ถึง 6 เดือน")
     @app_commands.describe(
         member="สมาชิกที่จะมอบ VIP",
-        days="จำนวนวัน (1-180) — ใส่อย่างใดอย่างหนึ่งกับ months",
+        days="จำนวนวัน (1-180) · ใส่อย่างใดอย่างหนึ่งกับ months",
         months="จำนวนเดือน (1-6)",
         tier="ระดับ VIP (เว้นว่าง = ระดับแรก)",
     )
@@ -679,7 +679,7 @@ class VipCog(commands.Cog):
         """มอบ VIP ด้วยมือ (ใช้ทั้งจาก /vip_grant และเมนูแอดมิน) — unit = "day" | "month" · ผู้เรียกต้องตรวจสิทธิ์แอดมินก่อน"""
         if not self.cfg.vip_enabled:
             await interaction.response.send_message(
-                "ระบบ VIP ยังปิดอยู่ค่ะ — เปิดที่ ⚙️ ตั้งค่าร้าน → 💎 VIP ก่อน", ephemeral=True
+                "ระบบ VIP ยังปิดอยู่ค่ะ เปิดที่ ⚙️ ตั้งค่าร้าน → 💎 VIP ก่อน", ephemeral=True
             )
             return
         if self.cfg.vip_tier(tier_key) is None:

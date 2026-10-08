@@ -124,7 +124,7 @@ class SettingsHome(AdminView):
         services = len([s for s in cfg.services if not s.get("hidden")])
         return panel_embed(
             "⚙️ ตั้งค่าร้าน",
-            "เลือกหมวดจากเมนูด้านล่าง — บันทึกลง `config.json` และใช้ได้ทันที ไม่ต้องรีสตาร์ต",
+            "เลือกหมวดจากเมนูด้านล่าง บันทึกลง `config.json` และใช้ได้ทันที ไม่ต้องรีสตาร์ต",
             [
                 ("🏪 ร้าน & บริการ", [
                     (f"🚪 ห้อง · {len(cfg.rooms)} ห้อง", "ชื่อห้อง และบริการที่ใช้ห้องได้"),
@@ -210,7 +210,7 @@ class RoomsView(AdminView):
                 discord.SelectOption(label=r["name"][:100], value=r["key"], default=r["key"] == room_key)
                 for r in rooms[:25]
             ]
-            or [discord.SelectOption(label="ยังไม่มีห้อง — กด ➕ เพิ่มห้อง", value="-")],
+            or [discord.SelectOption(label="ยังไม่มีห้อง กด ➕ เพิ่มห้อง", value="-")],
         )
         self.room_select.callback = self._on_room
         self.add_item(self.room_select)
@@ -244,7 +244,7 @@ class RoomsView(AdminView):
             used = ", ".join(self.cfg.service_name(k) for k in r.get("services") or []) or "ทุกบริการที่ต้องใช้ห้อง"
             mark = "▶️" if r["key"] == self.room_key else "🚪"
             lines.append(f"{mark} **{r['name']}**\n┗ {used}")
-        embed.description = "\n".join(lines)[:4000] or "*ยังไม่มีห้อง — กด ➕ เพิ่มห้อง*"
+        embed.description = "\n".join(lines)[:4000] or "*ยังไม่มีห้อง กด ➕ เพิ่มห้อง*"
         embed.set_footer(text="เลือกห้อง → ✏️ แก้ชื่อ / เลือกบริการที่ใช้ได้ / 🗑️ ลบ · หรือกด ➕ เพิ่มห้อง")
         return embed
 
@@ -325,7 +325,7 @@ class RoomNameModal(discord.ui.Modal):
             key = _new_key("room", {r["key"] for r in cfg.rooms})
             cfg.data.setdefault("rooms", []).append({"key": key, "name": name})
             self.view.room_key = key
-            text = f"เพิ่มห้อง **{name}** (ใช้ได้ทุกบริการที่ต้องใช้ห้อง — เลือกจำกัดบริการได้ในเมนูห้อง)"
+            text = f"เพิ่มห้อง **{name}** (ใช้ได้ทุกบริการที่ต้องใช้ห้อง เลือกจำกัดบริการได้ในเมนูห้อง)"
         _save(interaction)
         await log_change(interaction.client, interaction.user, text)
         view = RoomsView(cfg, self.view.room_key)
@@ -337,7 +337,7 @@ SERVICE_TYPES = {
     "normal": ("บริการปกติ", "ไม่ต้องใช้ห้อง"),
     "room": ("ต้องใช้ห้อง", "บังคับเลือกห้องตอนเปิดบิล"),
     "extend": ("แพ็กเกจต่อเวลา", "ใช้ในเมนูต่อเวลา/เพิ่มรอบ"),
-    "unit": ("คิดต่อหน่วย", "เช่น shot — กรอกจำนวนตอนเปิดบิล"),
+    "unit": ("คิดต่อหน่วย", "เช่น shot · กรอกจำนวนตอนเปิดบิล"),
 }
 
 
@@ -410,7 +410,7 @@ class ServicesView(AdminView):
             embed = discord.Embed(title=f"🛎️ บริการ & ราคา · {len(visible)} รายการ", color=COLOR_MAIN)
             embed.description = "\n".join(
                 f"{s.get('emoji', '') or '•'} **{s['name']}**\n┗ {service_line(self.cfg, s)}" for s in visible
-            )[:4000] or "*ยังไม่มีบริการ — กด ➕ เพิ่มบริการ*"
+            )[:4000] or "*ยังไม่มีบริการ กด ➕ เพิ่มบริการ*"
             embed.set_footer(text="เลือกบริการเพื่อแก้ไข/ลบ · หรือกด ➕ เพิ่มบริการ")
             return embed
 
@@ -680,7 +680,7 @@ class ServiceExtraModal(discord.ui.Modal):
         note = ""
         if svc.get("multi_staff"):
             note = (
-                f" — หลายพนักงาน สูงสุด {svc['max_staff']} คน · เพิ่มคนละ {svc['extra_staff_price']:,.0f} บาท "
+                f" · หลายพนักงาน สูงสุด {svc['max_staff']} คน · เพิ่มคนละ {svc['extra_staff_price']:,.0f} บาท "
                 f"(พนักงานได้ {svc.get('extra_staff_percent', 100):g}%)"
             )
         await log_change(interaction.client, interaction.user, f"แก้รายละเอียดบริการ **{svc['name']}**{note}")
@@ -725,7 +725,7 @@ class CustomerModal(discord.ui.Modal, title="ลูกค้าหลายค�
             svc.pop("group_consent", None)
         _save(interaction)
         text = (
-            f"ตั้งลูกค้าหลายคนของ **{svc['name']}** — สูงสุด {mx} คน · เพิ่มคนละ {price:,.0f} บาท "
+            f"ตั้งลูกค้าหลายคนของ **{svc['name']}** · สูงสุด {mx} คน · เพิ่มคนละ {price:,.0f} บาท "
             f"(พนักงานได้ {pct:g}%)" + (" · ต้องให้พนักงานยินยอม" if svc.get("group_consent") else "")
             if mx > 1
             else f"ตั้ง **{svc['name']}** ให้รับลูกค้าได้คนเดียว"
@@ -767,7 +767,7 @@ class AddServiceView(AdminView):
             title="➕ เพิ่มบริการใหม่",
             description=(
                 "1️⃣ เลือก**ประเภท**บริการ\n"
-                "2️⃣ เลือก**หมวดงาน** (ไม่บังคับ — ใช้จับคู่กับงานที่พนักงานรับตอนเข้างาน)\n"
+                "2️⃣ เลือก**หมวดงาน** (ไม่บังคับ ใช้จับคู่กับงานที่พนักงานรับตอนเข้างาน)\n"
                 "3️⃣ กด 📝 **กรอกรายละเอียด** (ชื่อ · ราคา · เวลา · ส่วนแบ่ง)"
             ),
             color=COLOR_MAIN,
@@ -990,7 +990,7 @@ class ReceptionRoleModal(discord.ui.Modal, title="Role รีเซปชั่�
         await log_change(interaction.client, interaction.user, f"ตั้ง Role รีเซปชั่น: {text}")
         await interaction.response.send_message(
             embed=discord.Embed(
-                description=f"✅ บันทึกแล้ว — Role รีเซปชั่น: {text}\nใช้ `/panel reception` และปุ่มในแผงได้ทันที",
+                description=f"✅ บันทึกแล้ว Role รีเซปชั่น: {text}\nใช้ `/panel reception` และปุ่มในแผงได้ทันที",
                 color=COLOR_OK,
             ),
             ephemeral=True,
@@ -1231,7 +1231,7 @@ class BotSetupView(AdminView):
         embed = discord.Embed(
             title="🧭 ตั้งค่าระบบบอท",
             description=(
-                "1️⃣ เลือกห้อง/Role จากเมนูแรก　2️⃣ กด ✏️ ใส่ Channel ID (Role เลือกจากเมนูหรือใส่ ID ก็ได้) — บันทึกทันที\n"
+                "1️⃣ เลือกห้อง/Role จากเมนูแรก　2️⃣ กด ✏️ ใส่ Channel ID (Role เลือกจากเมนูหรือใส่ ID ก็ได้) · บันทึกทันที\n"
                 + (f"⚠️ ยังไม่ได้ตั้ง **{missing}** รายการ" if missing else "✅ ตั้งห้องและ Role ครบแล้ว")
             ),
             color=COLOR_OK if not missing else COLOR_MAIN,
@@ -1584,7 +1584,7 @@ class ShopModal(discord.ui.Modal, title="🏪 ร้าน & Google Sheets"):
             if enable:
                 await sheets.start()  # เชื่อมต่อใหม่ทันที ไม่ต้องรีสตาร์ต
                 note = "\n📊 เชื่อมต่อ Google Sheets สำเร็จ" if sheets.ready else (
-                    "\n⚠️ เชื่อมต่อ Google Sheets ไม่สำเร็จ — ตรวจไฟล์ credentials และแชร์ชีตให้ service account"
+                    "\n⚠️ เชื่อมต่อ Google Sheets ไม่สำเร็จ ตรวจไฟล์ credentials และแชร์ชีตให้ service account"
                 )
             else:
                 sheets._spreadsheet = None

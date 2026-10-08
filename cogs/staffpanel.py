@@ -226,7 +226,7 @@ class StaffPanelCog(commands.Cog):
                     ("💳 บัญชีรับเงิน", "ใส่บัญชีไว้ให้แอดมินโอนส่วนแบ่ง"),
                 ]),
             ],
-            footer=f"ไม่ต้องกดออกงาน — บอทตัดยอดให้อัตโนมัติทุก {cutoff}",
+            footer=f"ไม่ต้องกดออกงาน บอทตัดยอดให้อัตโนมัติทุก {cutoff}",
             guild=interaction.guild,
         )
         await interaction.channel.send(embed=embed, view=StaffPanel())

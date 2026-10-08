@@ -189,7 +189,7 @@ def voucher_discount(
         if total is not None and staff_share is not None:
             discount = min(discount, max(total - staff_share, 0))
             if discount <= 0:
-                return 0.0, "บิลนี้ไม่มีส่วนของร้านให้หักส่วนลด (พนักงานได้เต็มยอด) — เก็บคูปองไว้ใช้บิลอื่นนะคะ"
+                return 0.0, "บิลนี้ไม่มีส่วนของร้านให้หักส่วนลด (พนักงานได้เต็มยอด) · เก็บคูปองไว้ใช้บิลอื่นนะคะ"
         return round(discount, 2), None
     key = reward_item.get("service")
     svc = cfg.service(key) if key else None
@@ -198,7 +198,7 @@ def voucher_discount(
     if svc.get("adult_only"):
         return 0.0, "คูปองใช้กับบริการ 18+ ไม่ได้"
     if key not in service_keys:
-        return 0.0, f"คูปองนี้ใช้กับ **{svc['name']}** — ต้องเลือกบริการนี้ในบิลด้วย"
+        return 0.0, f"คูปองนี้ใช้กับ **{svc['name']}** · ต้องเลือกบริการนี้ในบิลด้วย"
     if kind == "service_free":
         unit = float(svc.get("pricing", {}).get("normal", 0))
         qty = min(int(reward_item.get("qty", 1)), service_keys.count(key))

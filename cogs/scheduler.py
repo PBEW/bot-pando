@@ -369,7 +369,7 @@ class SchedulerCog(commands.Cog):
         else:
             embed.add_field(
                 name="เงื่อนไข",
-                value=f"ผู้ชนะต้องมียอดรวมขั้นต่ำ {money(minimum)} — อันดับ 1 ยังไม่ถึงขั้นต่ำ"
+                value=f"ผู้ชนะต้องมียอดรวมขั้นต่ำ {money(minimum)} · อันดับ 1 ยังไม่ถึงขั้นต่ำ"
                 + (" จึงไม่มีผู้ชนะเดือนนี้" if final else ""),
                 inline=False,
             )
@@ -410,7 +410,7 @@ class SchedulerCog(commands.Cog):
                 await coins_cog.on_top_donate(top["customer_id"], f"{prev.month:02d}/{prev.year}")
             await payments.notify_admin_text(
                 f"🏆 ผู้ชนะ Top Donate {prev.month:02d}/{prev.year}: <@{top['customer_id']}> "
-                f"({money(top['total'])}) — ติดต่อจัดเดทกับ <@{top['top_staff']}> ได้เลยค่ะ"
+                f"({money(top['total'])}) · ติดต่อจัดเดทกับ <@{top['top_staff']}> ได้เลยค่ะ"
             )
             await send_dm(
                 self.bot,
@@ -420,7 +420,7 @@ class SchedulerCog(commands.Cog):
                     description=(
                         f"ยอดรวมเดือน {prev.month:02d}/{prev.year}: **{money(top['total'])}**\n"
                         f"คุณได้สิทธิ์พา <@{top['top_staff']}> ไปเดทนอกร้าน 💜\n"
-                        "แอดมินจะติดต่อกลับเพื่อนัดวันเวลา — จะทำอะไรขอให้ถามความเห็นของพนักงานก่อนนะคะ"
+                        "แอดมินจะติดต่อกลับเพื่อนัดวันเวลา จะทำอะไรขอให้ถามความเห็นของพนักงานก่อนนะคะ"
                     ),
                     color=COLOR_GOLD,
                 ),

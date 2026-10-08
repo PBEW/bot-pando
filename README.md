@@ -150,7 +150,8 @@ copy .env.example .env
 | `/summary` · `/cutoff` | สรุปยอดรอบนี้ / ตัดยอดทันที (สรุปตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้ แล้วเริ่มนับใหม่ — สรุปอัตโนมัติจะไม่นับซ้ำ) |
 | `/top_donate` | อันดับโดเนทรายเดือน (ทุกคนใช้ได้) |
 | `/menu` | เมนูร้านและราคา (ทุกคนใช้ได้) |
-| `/my_hours` · `/on_duty` · `/attendance_report` · `/attendance_fix` · `/daily_checkin` | ระบบลงเวลาพนักงาน |
+| `/my_hours` · `/on_duty` · `/attendance_report` · `/attendance_fix` | ระบบลงเวลาพนักงาน |
+| `/daily_checkin topic when staff_only` | กระดานเช็คชื่อกิจกรรม / ประชุม (✅ ไป · 🤔 ยังไม่แน่ใจ · ❌ ไม่ไป · 🔒 ปิด) |
 | `/health` · `/reload_config` | สถานะระบบ / โหลด config ใหม่ |
 
 ข้อมูลเก็บที่ `data/pandora.sqlite3` และ log ที่ `logs/pandora.log`
