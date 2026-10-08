@@ -413,11 +413,11 @@ class OpenBillWizard(discord.ui.View):
                 continue
             blocked = [cid for cid in self.customer_ids if cid in prefs.get("avoid_ids", [])]
             if blocked:
-                return f"<@{sid}> แจ้งไว้ว่าวันนี้ไม่รับ <@{blocked[0]}> ค่ะ — เลือกพนักงานคนอื่นนะคะ"
+                return f"<@{sid}> แจ้งไว้ว่าวันนี้ไม่รับ <@{blocked[0]}> ค่ะ เลือกพนักงานคนอื่นนะคะ"
             missing = adult_cats - set(prefs.get("accepts", []))
             if missing:
                 labels = ", ".join(accept_label(self.cfg, k) for k in sorted(missing))
-                return f"<@{sid}> วันนี้ไม่รับ {labels} — บริการ 18+ เปิดบิลให้คนนี้ไม่ได้ค่ะ"
+                return f"<@{sid}> วันนี้ไม่รับ {labels} · บริการ 18+ เปิดบิลให้คนนี้ไม่ได้ค่ะ"
         return None
 
     def _group_problem(self) -> str | None:
@@ -431,7 +431,7 @@ class OpenBillWizard(discord.ui.View):
             prefs = self.today.get(sid)
             if prefs is None or "group_vip" not in prefs.get("accepts", []):
                 return (
-                    f"<@{sid}> ไม่ได้เลือกรับลูกค้าหลายคนในห้อง VIP วันนี้ — "
+                    f"<@{sid}> ไม่ได้เลือกรับลูกค้าหลายคนในห้อง VIP วันนี้ "
                     f"**{self.cfg.service_names(needs)}** เปิดให้ลูกค้า {len(self.customers)} คนไม่ได้ค่ะ"
                 )
         return None
@@ -579,14 +579,14 @@ class OpenBillWizard(discord.ui.View):
             voucher_line = ""
             if self.voucher and not voucher_problem:
                 item = coins.reward(self.cfg, self.voucher["reward_key"]) or {}
-                voucher_line = f"\n• 🎟️ คูปอง {item.get('name', '')} — -{money(discount)} (ร้านออก พนักงานได้เต็ม)"
+                voucher_line = f"\n• 🎟️ คูปอง {item.get('name', '')} · -{money(discount)} (ร้านออก พนักงานได้เต็ม)"
             embed.add_field(
                 name="💰 ราคาโดยประมาณ",
                 value=(
                     f"{quote.breakdown}{voucher_line}\n"
                     f"━━━━━━━━━━━━\n"
                     f"**รวม {money(quote.total_price - discount)}**　⏱️ {quote.duration_minutes} นาที"
-                    + (f"\n💎 {self.cfg.vip_tier_name(tier)} — คิดราคา/สิทธิ์ตามระดับอัตโนมัติ" if tier else "")
+                    + (f"\n💎 {self.cfg.vip_tier_name(tier)} · คิดราคา/สิทธิ์ตามระดับอัตโนมัติ" if tier else "")
                     + unit_note
                 ),
                 inline=False,
@@ -614,7 +614,7 @@ class OpenBillWizard(discord.ui.View):
         elif self._requires_room() and not self.room_key:
             embed.set_footer(text="⚠️ บริการที่เลือกต้องระบุห้อง")
         elif has_adult_service(self.cfg, self.service_keys):
-            embed.set_footer(text="🔞 มีบริการ 18+ — พนักงานต้องตกลงกับลูกค้าก่อนกดรับงาน")
+            embed.set_footer(text="🔞 มีบริการ 18+ · พนักงานต้องตกลงกับลูกค้าก่อนกดรับงาน")
         return embed
 
     async def _refresh(self, interaction: discord.Interaction) -> None:
@@ -914,7 +914,7 @@ class BillActionModal(discord.ui.Modal):
         self.add_item(self.job_id)
         if action == "cancel":
             self.reason = discord.ui.TextInput(
-                label="เหตุผล (ไม่บังคับ — ส่งให้ลูกค้า/พนักงาน)", required=False, max_length=200
+                label="เหตุผล (ไม่บังคับ ส่งให้ลูกค้า/พนักงาน)", required=False, max_length=200
             )
             self.add_item(self.reason)
 
@@ -1218,7 +1218,7 @@ class ReceptionCog(commands.Cog):
         if extend_job["total_price"] <= 0:
             # ต่อเวลาฟรี (VIP/สิทธิ์ฟรี) — บันทึกชำระเลย ไม่ส่ง QR 0 บาทที่จะโดนยกเลิกอัตโนมัติทีหลัง
             await payments.mark_job_paid(extend_id, self.bot.user)
-            await payments.notify_admin_text(f"🎟️ บิลต่อเวลา `#{extend_id}` ฟรี (สิทธิ์ VIP) — บันทึกชำระแล้วอัตโนมัติ")
+            await payments.notify_admin_text(f"🎟️ บิลต่อเวลา `#{extend_id}` ฟรี (สิทธิ์ VIP) · บันทึกชำระแล้วอัตโนมัติ")
         else:
             await payments.start_job_payment(extend_job)
         for sid in staff_ids:
@@ -1273,11 +1273,11 @@ class ReceptionCog(commands.Cog):
 
         if waiting:
             job = await self.db.get_job(job_id)
-            embed = job_embed(self.cfg, job, title=f"✅ รับงานแล้ว — รออีก {len(waiting)} คน", color=COLOR_INFO)
+            embed = job_embed(self.cfg, job, title=f"✅ รับงานแล้ว รออีก {len(waiting)} คน", color=COLOR_INFO)
             embed.add_field(name="ยังไม่ได้กดรับ", value=" ".join(f"<@{s}>" for s in waiting), inline=False)
             await interaction.edit_original_response(embed=embed, view=None)
             await payments.notify_admin_text(
-                f"✅ <@{interaction.user.id}> รับงานบิล `#{job_id}` ({len(accepted)}/{len(team)}) — "
+                f"✅ <@{interaction.user.id}> รับงานบิล `#{job_id}` ({len(accepted)}/{len(team)}) · "
                 f"รอ {' '.join(f'<@{s}>' for s in waiting)}"
             )
             return
@@ -1290,7 +1290,7 @@ class ReceptionCog(commands.Cog):
             return
         job = await self.db.get_job(job_id)
         await interaction.edit_original_response(
-            embed=job_embed(self.cfg, job, title="✅ รับงานแล้ว" + (" — ครบทุกคน" if len(team) > 1 else ""), color=COLOR_OK),
+            embed=job_embed(self.cfg, job, title="✅ รับงานแล้ว" + (" · ครบทุกคน" if len(team) > 1 else ""), color=COLOR_OK),
             view=None,
         )
         for sid in team:
@@ -1307,11 +1307,11 @@ class ReceptionCog(commands.Cog):
                 )
         if job["total_price"] <= 0:
             await payments.mark_job_paid(job_id, self.bot.user)
-            await payments.notify_admin_text(f"🎟️ บิล `#{job_id}` ฟรีทั้งบิลจากคูปอง — บันทึกชำระแล้วอัตโนมัติ")
+            await payments.notify_admin_text(f"🎟️ บิล `#{job_id}` ฟรีทั้งบิลจากคูปอง บันทึกชำระแล้วอัตโนมัติ")
             return
         await payments.start_job_payment(job)
         await payments.notify_admin_text(
-            f"✅ พนักงานรับงานบิล `#{job_id}` ครบ ({len(team)}/{len(team)}) — ส่งยอดชำระให้ลูกค้าเรียบร้อย"
+            f"✅ พนักงานรับงานบิล `#{job_id}` ครบ ({len(team)}/{len(team)}) · ส่งยอดชำระให้ลูกค้าเรียบร้อย"
         )
 
     async def staff_reject_prompt(self, interaction: discord.Interaction, job_id: int) -> None:
@@ -1357,7 +1357,7 @@ class ReceptionCog(commands.Cog):
         removed = await purge_old_panels(interaction.channel, self.bot.user.id, "olp:panel:")
 
         tips = [
-            "• เลือกพนักงานได้หลายคน — ทุกคนต้องกดรับงานเอง",
+            "• เลือกพนักงานได้หลายคน ทุกคนต้องกดรับงานเอง",
             "• Drink Friend กรอกจำนวน shot ตอนยืนยัน",
             "• Erotic Service เลือกคู่กับ Short Date / Bed Room / Karaoke (บวกเวลาให้อัตโนมัติ)",
         ]
@@ -1368,13 +1368,13 @@ class ReceptionCog(commands.Cog):
             f"แผงควบคุมสำหรับแอดมิน / พนักงานต้อนรับ · {self.cfg.shop_name}",
             [
                 ("🧾 จัดการบิล", [
-                    ("🧾 เปิดบิลใหม่", "เลือกลูกค้า · พนักงาน · บริการ · ห้อง — คิดราคาให้อัตโนมัติ"),
+                    ("🧾 เปิดบิลใหม่", "เลือกลูกค้า · พนักงาน · บริการ · ห้อง คิดราคาให้อัตโนมัติ"),
                     ("⏱️ ต่อเวลา / เพิ่มรอบ", "ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม"),
                     ("📋 งานที่กำลังดำเนินอยู่", "ดูงานที่ยังไม่จบเวลา"),
                 ]),
                 ("💳 การชำระเงิน", [
-                    ("✅ ยืนยันชำระเงิน", "ใส่เลขบิล — ลูกค้าจ่ายแล้วแต่ไม่ได้ส่งสลิปผ่านบอท (เหมือน /bill paid)"),
-                    ("❌ ยกเลิกบิล", "ใส่เลขบิล + เหตุผล — แจ้งลูกค้า/พนักงานให้อัตโนมัติ (เหมือน /bill cancel)"),
+                    ("✅ ยืนยันชำระเงิน", "ใส่เลขบิล ลูกค้าจ่ายแล้วแต่ไม่ได้ส่งสลิปผ่านบอท (เหมือน /bill paid)"),
+                    ("❌ ยกเลิกบิล", "ใส่เลขบิล + เหตุผล แจ้งลูกค้า/พนักงานให้อัตโนมัติ (เหมือน /bill cancel)"),
                 ]),
                 ("💡 ควรรู้", "\n".join(tips)),
             ],

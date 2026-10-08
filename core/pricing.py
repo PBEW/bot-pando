@@ -21,7 +21,7 @@ class Quote:
 
     @property
     def breakdown(self) -> str:
-        return "\n".join(f"• {name} — {price:,.0f} บาท" for name, price in self.lines) or "-"
+        return "\n".join(f"• {name} · {price:,.0f} บาท" for name, price in self.lines) or "-"
 
 
 def staff_count_extra(svc: dict, staff_count: int) -> int:

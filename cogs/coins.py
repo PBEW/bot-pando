@@ -34,7 +34,7 @@ class RedeemView(discord.ui.View):
             placeholder="เลือกรางวัลที่จะแลก",
             options=[
                 discord.SelectOption(
-                    label=f"{r['name']} — {r['cost']} เหรียญ"[:100],
+                    label=f"{r['name']} · {r['cost']} เหรียญ"[:100],
                     value=r["key"],
                     emoji=r.get("emoji") or None,
                     description=("✅ แลกได้" if bal >= int(r["cost"]) else f"ขาดอีก {int(r['cost']) - bal} เหรียญ")[:100],
@@ -117,7 +117,7 @@ class CoinAdminView(AdminOnly):
         mult = float(coins.opt(cfg, "event_multiplier"))
         on = coins.enabled(cfg)
         embed = discord.Embed(
-            title=f"🪙 จัดการ{coins.opt(cfg, 'name')} — " + ("🟢 เปิดใช้งาน" if on else "🔴 ปิดใช้งาน"),
+            title=f"🪙 จัดการ{coins.opt(cfg, 'name')} · " + ("🟢 เปิดใช้งาน" if on else "🔴 ปิดใช้งาน"),
             color=COLOR_GOLD if on else COLOR_DANGER,
         )
         embed.add_field(
@@ -190,7 +190,7 @@ class CoinAdminView(AdminOnly):
             return
         result = await self.cog.mark_voucher_used(self.voucher_id)
         await self.cog._notify_admin(
-            f"🎟️ {interaction.user.mention} บันทึกว่า {self.member.mention} ใช้คูปอง `V{self.voucher_id}` แล้ว — {result}"
+            f"🎟️ {interaction.user.mention} บันทึกว่า {self.member.mention} ใช้คูปอง `V{self.voucher_id}` แล้ว {result}"
         )
         await self.rerender(interaction, self.member)
 
@@ -202,7 +202,7 @@ class CoinAdminView(AdminOnly):
         cfg.save()
         await self.cog._notify_admin(
             f"🔌 {interaction.user.mention} {'เปิด' if on else 'ปิด'}ระบบ{coins.opt(cfg, 'name')}"
-            + ("" if on else " — ลูกค้าจะไม่ได้เหรียญเพิ่ม และแลก/ดูเหรียญไม่ได้จนกว่าจะเปิดใหม่")
+            + ("" if on else " · ลูกค้าจะไม่ได้เหรียญเพิ่ม และแลก/ดูเหรียญไม่ได้จนกว่าจะเปิดใหม่")
         )
         await self.rerender(interaction, self.member)
 
@@ -243,7 +243,7 @@ class AdjustModal(discord.ui.Modal, title="ปรับเหรียญ"):
         member, cog = self.view.member, self.view.cog
         reason = str(self.reason.value).strip()
         await cog._change(member.id, amount, "ADMIN", reason, by=interaction.user.id)
-        await cog._notify_admin(f"🪙 {interaction.user.mention} ปรับเหรียญ {member.mention} {amount:+,} — {reason}")
+        await cog._notify_admin(f"🪙 {interaction.user.mention} ปรับเหรียญ {member.mention} {amount:+,} · {reason}")
         await self.view.rerender(interaction, member)
 
 
@@ -320,7 +320,7 @@ class RewardEditView(AdminOnly):
             placeholder="เลือกรางวัลที่จะแก้/เลิกแลก",
             options=[
                 discord.SelectOption(
-                    label=f"{r['name']} — {r['cost']} เหรียญ"[:100], value=r["key"], emoji=r.get("emoji") or None,
+                    label=f"{r['name']} · {r['cost']} เหรียญ"[:100], value=r["key"], emoji=r.get("emoji") or None,
                     default=r["key"] == selected,
                 )
                 for r in coins.rewards(cfg)[:25]
@@ -725,7 +725,7 @@ class CoinsCog(commands.Cog):
             ),
         )
         await self._notify_admin(
-            f"💎 <@{user_id}> สะสมเหรียญครบ {need:,} — " + ("ให้ Role แล้ว" if role else "ตั้ง `coins.collector_role_id` เพื่อให้ Role อัตโนมัติ")
+            f"💎 <@{user_id}> สะสมเหรียญครบ {need:,} · " + ("ให้ Role แล้ว" if role else "ตั้ง `coins.collector_role_id` เพื่อให้ Role อัตโนมัติ")
         )
 
     # --------------------------------------------------- ได้/ดึงคืนเหรียญ
@@ -949,7 +949,7 @@ class CoinsCog(commands.Cog):
             if channel is not None:
                 await channel.send(
                     embed=discord.Embed(
-                        title="📣 ขอบคุณจากใจ 💜",
+                        title="📣 ขอบคุณค่ะ 💜",
                         description=f"ขอบคุณ {user.mention} ที่สนับสนุน **{self.cfg.shop_name}** เสมอมานะคะ",
                         color=COLOR_GOLD,
                     )
@@ -976,10 +976,10 @@ class CoinsCog(commands.Cog):
                 )
             note = f"\n📌 {item['note']}" if item.get("note") else ""
             return (
-                f"ได้สิทธิ์ `V{voucher_id}` ใช้ได้ถึง {expires.astimezone(self.cfg.tz):%d/%m/%Y} — "
+                f"ได้สิทธิ์ `V{voucher_id}` ใช้ได้ถึง {expires.astimezone(self.cfg.tz):%d/%m/%Y} · "
                 f"แอดมินจะติดต่อนัดวันกับคุณค่ะ{note}"
             )
-        return f"ได้คูปอง `V{voucher_id}` ใช้ได้ถึง {expires.astimezone(self.cfg.tz):%d/%m/%Y} — แจ้งแอดมินตอนจองได้เลยค่ะ"
+        return f"ได้คูปอง `V{voucher_id}` ใช้ได้ถึง {expires.astimezone(self.cfg.tz):%d/%m/%Y} · แจ้งแอดมินตอนจองได้เลยค่ะ"
 
     # ------------------------------------------------- ใช้คูปอง (แอดมิน)
     async def mark_voucher_used(self, voucher_id: int) -> str:
@@ -992,7 +992,7 @@ class CoinsCog(commands.Cog):
         item = coins.reward(self.cfg, v["reward_key"]) or {}
         if item.get("type") == "role":
             # Role รางวัลให้ไปตั้งแต่ตอนแลก — ต้องปล่อยให้ระบบถอดเองตอนหมดอายุ ถ้ากดใช้ Role จะติดถาวร
-            return "คูปอง Role ไม่ต้องกดใช้ — บอทจะถอด Role ให้อัตโนมัติเมื่อหมดอายุค่ะ"
+            return "คูปอง Role ไม่ต้องกดใช้ บอทจะถอด Role ให้อัตโนมัติเมื่อหมดอายุค่ะ"
         hours = int(item.get("role_hours") or 0)
         guild = self.bot.get_guild(self.cfg.guild_id)
         role = guild.get_role(int(item.get("role_id") or 0)) if guild and hours else None
@@ -1042,11 +1042,11 @@ class CoinsCog(commands.Cog):
             problem = "เลือกบอทเป็นเป้าหมายไม่ได้ค่ะ"
         elif performer_id == uid:
             # กันพนักงานส่งการ์ดให้ตัวเองเพื่อรับโบนัส (เท่ากับแลกเหรียญเป็นเงิน)
-            problem = "ส่งการ์ดแกล้งให้ตัวเองไม่ได้ค่ะ — เลือกพนักงานคนอื่นนะคะ"
+            problem = "ส่งการ์ดแกล้งให้ตัวเองไม่ได้ค่ะ เลือกพนักงานคนอื่นนะคะ"
         elif target.id == performer_id:
             problem = "พนักงานที่ไปแกล้งกับเป้าหมายต้องเป็นคนละคนกันค่ะ"
         elif target.id in today and "prank_ok" not in today[target.id].get("accepts", []) and target.id != uid:
-            problem = "พนักงานคนนี้ไม่ได้เปิดรับให้แกล้งวันนี้ค่ะ — เลือกเป้าหมายอื่นนะคะ"
+            problem = "พนักงานคนนี้ไม่ได้เปิดรับให้แกล้งวันนี้ค่ะ เลือกเป้าหมายอื่นนะคะ"
         elif self._is_staff(target) and target.id not in today and target.id != uid:
             problem = "พนักงานคนนี้ยังไม่ได้เข้างาน/ไม่ได้เปิดรับให้แกล้งค่ะ"
         elif await coins.balance(self.db, uid) < cost:
@@ -1147,10 +1147,10 @@ class CoinsCog(commands.Cog):
             await interaction.edit_original_response(content="การ์ดนี้ถูกดำเนินการไปแล้วค่ะ", embed=None, view=None)
             return
         if accepted:
-            text = f"✅ รับการ์ดแกล้งแล้ว — ไปแกล้ง <@{info['target']}> ได้เลย: {info['prank']}"
+            text = f"✅ รับการ์ดแกล้งแล้ว ไปแกล้ง <@{info['target']}> ได้เลย: {info['prank']}"
             customer_msg = f"🃏 <@{info['performer']}> รับการ์ดแกล้งแล้ว! เตรียมดูได้เลย 😆"
         else:
-            text = "❌ ปฏิเสธการ์ดแล้ว — คืนเหรียญให้ลูกค้าเรียบร้อย"
+            text = "❌ ปฏิเสธการ์ดแล้ว คืนเหรียญให้ลูกค้าเรียบร้อย"
             customer_msg = "🃏 พนักงานไม่สะดวกรับการ์ดแกล้งนี้ คืนเหรียญให้แล้วนะคะ"
         await interaction.edit_original_response(content=text, embed=None, view=None)
         await send_dm(
@@ -1184,7 +1184,7 @@ class CoinsCog(commands.Cog):
         if mine is None:
             life = await coins.lifetime(self.db, interaction.user.id)
             embed.add_field(name="👤 ของคุณ", value=f"สะสมตลอดชีพ {life:,} เหรียญ · ยังไม่ติด Top {len(rows) or 10}", inline=False)
-        embed.set_footer(text="นับยอดสะสมตลอดชีพ — แลกของแล้วอันดับไม่ลด")
+        embed.set_footer(text="นับยอดสะสมตลอดชีพ แลกของแล้วอันดับไม่ลด")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ---------------------------------------------------- ดูแลรายวัน
@@ -1246,7 +1246,7 @@ class CoinsCog(commands.Cog):
                     embed=dm_embed(
                         f"⌛ {coins.label(self.cfg)} หมดอายุ",
                         [("🔴", "หมดอายุ", f"{int(row['bal']):,} เหรียญ")],
-                        note=f"ไม่ได้ใช้บริการเกิน {days} วัน — กลับมาใช้บริการเพื่อเริ่มสะสมใหม่ได้เลยค่ะ 💜",
+                        note=f"ไม่ได้ใช้บริการเกิน {days} วัน กลับมาใช้บริการเพื่อเริ่มสะสมใหม่ได้เลยค่ะ 💜",
                         color=COLOR_DANGER,
                     ),
                 )
@@ -1269,7 +1269,7 @@ class CoinsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         bal = await self._change(member.id, amount, "ADMIN", reason[:200], by=interaction.user.id)
         await interaction.followup.send(f"✅ {member.mention} {amount:+,} เหรียญ · คงเหลือ {bal:,}", ephemeral=True)
-        await self._notify_admin(f"🪙 {interaction.user.mention} ปรับเหรียญ {member.mention} {amount:+,} — {reason[:200]}")
+        await self._notify_admin(f"🪙 {interaction.user.mention} ปรับเหรียญ {member.mention} {amount:+,} · {reason[:200]}")
 
     @coins_group.command(name="check", description="ดูเหรียญและคูปองของสมาชิก")
     async def check(self, interaction: discord.Interaction, member: discord.Member) -> None:
@@ -1310,7 +1310,7 @@ class CoinsCog(commands.Cog):
             await channel.send(
                 embed=discord.Embed(
                     title=f"🎉 อีเวนต์เหรียญ ×{multiplier:g}!",
-                    description=f"วันนี้ใช้บริการได้ {coins.label(self.cfg)} **×{multiplier:g}** ทุกบิล — อย่าพลาดนะคะ 💜",
+                    description=f"วันนี้ใช้บริการได้ {coins.label(self.cfg)} **×{multiplier:g}** ทุกบิลค่ะ 💜",
                     color=COLOR_GOLD,
                 )
             )

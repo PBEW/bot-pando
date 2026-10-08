@@ -249,7 +249,7 @@ class AttendanceCog(commands.Cog):
             return
         current = await self.db.open_attendance(interaction.user.id)
         embed = discord.Embed(
-            title="✏️ แก้ไขงานที่รับวันนี้" if current else "🟢 เข้างาน — วันนี้รับงานแบบไหน?",
+            title="✏️ แก้ไขงานที่รับวันนี้" if current else "🟢 เข้างาน วันนี้รับงานแบบไหน?",
             description=(
                 "1️⃣ เลือก**งานที่รับวันนี้** (เลือกได้หลายข้อ)\n"
                 "┗ 👥 รับลูกค้าหลายคนในห้อง VIP ต้องติ๊กเองเท่านั้น\n"
@@ -261,7 +261,7 @@ class AttendanceCog(commands.Cog):
         )
         embed.set_author(name="🔒 รายชื่อคนที่ไม่รับ เห็นเฉพาะคุณกับแอดมินเท่านั้น")
         if current:
-            embed.set_footer(text="วันนี้คุณเข้างานแล้ว — ยืนยันเพื่ออัปเดตข้อมูล (เวลาเข้างานไม่เปลี่ยน)")
+            embed.set_footer(text="วันนี้คุณเข้างานแล้ว ยืนยันเพื่ออัปเดตข้อมูล (เวลาเข้างานไม่เปลี่ยน)")
         await interaction.response.send_message(
             embed=embed, view=ClockInView(self, interaction.user, load_prefs(current)), ephemeral=True
         )
@@ -495,7 +495,7 @@ class AttendanceCog(commands.Cog):
                     ("🕒 ชั่วโมงของฉัน", "ดูชั่วโมงสะสมของรอบนี้"),
                 ]),
             ],
-            footer=f"ไม่ต้องกดออกงาน — บอทตัดยอดให้อัตโนมัติทุก {self.cutoff_label()}",
+            footer=f"ไม่ต้องกดออกงาน บอทตัดยอดให้อัตโนมัติทุก {self.cutoff_label()}",
             guild=interaction.guild,
         )
         await interaction.channel.send(embed=embed, view=AttendancePanel())

@@ -149,7 +149,7 @@ class DonateCog(commands.Cog):
             title="💜 โดเนทให้พนักงาน",
             description=(
                 "1️⃣ เลือก**พนักงาน**\n"
-                "2️⃣ เลือก**ประเภท** — โดเนทเงิน 💵 หรือ Drink Friend 🥃\n"
+                "2️⃣ เลือก**ประเภท** · โดเนทเงิน 💵 หรือ Drink Friend 🥃\n"
                 "3️⃣ กด **ถัดไป** ใส่ยอด แล้วรับ QR ชำระเงินทาง DM"
             ),
             color=COLOR_MAIN,
@@ -284,7 +284,7 @@ class DonateCog(commands.Cog):
                 embed=dm_embed(
                     "⌛ ยกเลิกรายการโดเนทแล้ว",
                     [("🧾", "โดเนท", f"`#{job['id']}`")],
-                    note=f"ไม่ได้ชำระภายใน {self.expire_minutes} นาที ระบบจึงยกเลิกให้ค่ะ — โดเนทใหม่ได้ทุกเมื่อ 💜",
+                    note=f"ไม่ได้ชำระภายใน {self.expire_minutes} นาที ระบบจึงยกเลิกให้ค่ะ โดเนทใหม่ได้ทุกเมื่อ 💜",
                     color=COLOR_DANGER,
                 ),
             )

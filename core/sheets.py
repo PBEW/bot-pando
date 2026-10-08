@@ -329,7 +329,7 @@ class SheetsClient:
             await asyncio.to_thread(self._connect)
             log.info("เชื่อมต่อ Google Sheets สำเร็จ")
         except Exception:  # noqa: BLE001 - ไม่ให้บอทล่มเพราะ Sheets
-            log.exception("เชื่อมต่อ Google Sheets ไม่สำเร็จ — บอทจะทำงานต่อโดยไม่บันทึกชีต")
+            log.exception("เชื่อมต่อ Google Sheets ไม่สำเร็จ บอทจะทำงานต่อโดยไม่บันทึกชีต")
 
     def _connect(self) -> None:
         import gspread

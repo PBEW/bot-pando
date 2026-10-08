@@ -55,7 +55,7 @@ class AdminCog(commands.Cog):
         adult = self.cfg.adult_role_ids
         embed.add_field(
             name="🔞 Role ยืนยันอายุ 18+",
-            value=" ".join(f"<@&{r}>" for r in adult) if adult else "⚠️ ยังไม่ตั้ง (`roles.adult_verified`) — บริการ 18+ เปิดบิลได้ทุกคน",
+            value=" ".join(f"<@&{r}>" for r in adult) if adult else "⚠️ ยังไม่ตั้ง (`roles.adult_verified`) · บริการ 18+ เปิดบิลได้ทุกคน",
             inline=False,
         )
         embed.add_field(
@@ -84,7 +84,7 @@ class AdminCog(commands.Cog):
         )
         return embed
 
-    @app_commands.command(name="sheets_format", description="จัดรูปแบบ Google Sheets ใหม่ (สี/หัวตาราง/สรุป) — ข้อมูลเดิมไม่หาย (แอดมิน)")
+    @app_commands.command(name="sheets_format", description="จัดรูปแบบ Google Sheets ใหม่ (สี/หัวตาราง/สรุป) · ข้อมูลเดิมไม่หาย (แอดมิน)")
     async def sheets_format(self, interaction: discord.Interaction) -> None:
         if not self._guard(interaction):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)

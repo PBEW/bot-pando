@@ -1,36 +1,68 @@
-"""เช็คชื่อพนักงานรายวัน: แอดมินใช้ /daily_checkin โพสต์กระดานในวันที่มีงาน ให้พนักงานกด ✅ มา / 🛌 หยุด
+"""เช็คชื่อกิจกรรม / ประชุม: แอดมินใช้ /daily_checkin ตั้งหัวข้อ แล้วให้คนในเซิร์ฟเวอร์กด ✅ ไป / 🤔 ยังไม่แน่ใจ / ❌ ไม่ไป
 
-แยกจากระบบเข้า/ออกงาน (ไม่นับชั่วโมง) — ใช้ยืนยันว่าวันนี้ใครมาทำงาน แม้จะซ่อนสถานะออนไลน์ไว้
+ไม่เกี่ยวกับการมาทำงาน (การเข้างานอยู่ที่ /panel_staff) · ทุกกระดานเก็บคำตอบแยกกัน เปลี่ยนคำตอบได้จนกว่าแอดมินจะปิด
 """
 from __future__ import annotations
 
-import datetime as dt
 import logging
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.embeds import COLOR_MAIN
+from core.embeds import COLOR_MAIN, COLOR_OK
 from core.utils import discord_ts, from_iso, is_admin, now_utc, staff_members, to_iso
 
 log = logging.getLogger("olp.dailycheck")
 
-STATUS_IN = "IN"
-STATUS_OFF = "OFF"
+STATUSES = {
+    "YES": ("✅", "ไป"),
+    "MAYBE": ("🤔", "ยังไม่แน่ใจ"),
+    "NO": ("❌", "ไม่ไป"),
+}
 
 
-class DailyCheckView(discord.ui.View):
+class RollCallView(discord.ui.View):
+    """ปุ่มของกระดาน (ลงทะเบียนถาวร ใช้ได้กับทุกกระดาน เพราะอ้างกระดานจากข้อความที่กด)"""
+
     def __init__(self) -> None:
         super().__init__(timeout=None)
 
+    @discord.ui.button(label="ไป", emoji="✅", style=discord.ButtonStyle.success, custom_id="olp:roll:yes")
+    async def yes(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("DailyCheckCog").answer(interaction, "YES")
+
+    @discord.ui.button(label="ยังไม่แน่ใจ", emoji="🤔", style=discord.ButtonStyle.secondary, custom_id="olp:roll:maybe")
+    async def maybe(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("DailyCheckCog").answer(interaction, "MAYBE")
+
+    @discord.ui.button(label="ไม่ไป", emoji="❌", style=discord.ButtonStyle.danger, custom_id="olp:roll:no")
+    async def no(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("DailyCheckCog").answer(interaction, "NO")
+
+    @discord.ui.button(label="ปิดเช็คชื่อ", emoji="🔒", style=discord.ButtonStyle.secondary, custom_id="olp:roll:close", row=1)
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.client.get_cog("DailyCheckCog").close_board(interaction)
+
+
+class LegacyDailyView(discord.ui.View):
+    """ปุ่มของกระดานเช็คชื่อแบบเก่า (มาทำงาน / หยุด) ที่ยังค้างอยู่ในห้อง"""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    async def _gone(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(
+            "กระดานนี้เลิกใช้แล้วค่ะ เข้างานใช้ปุ่ม 🟢 เข้างาน ใน /panel_staff แทน", ephemeral=True
+        )
+
     @discord.ui.button(label="มาทำงานวันนี้", emoji="✅", style=discord.ButtonStyle.success, custom_id="olp:daily:in")
-    async def check_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.client.get_cog("DailyCheckCog").mark(interaction, STATUS_IN)
+    async def old_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._gone(interaction)
 
     @discord.ui.button(label="หยุดวันนี้", emoji="🛌", style=discord.ButtonStyle.secondary, custom_id="olp:daily:off")
-    async def day_off(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.client.get_cog("DailyCheckCog").mark(interaction, STATUS_OFF)
+    async def old_off(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._gone(interaction)
 
 
 class DailyCheckCog(commands.Cog):
@@ -40,78 +72,113 @@ class DailyCheckCog(commands.Cog):
         self.db = bot.db
 
     # ------------------------------------------------------------ ข้อมูล
-    def _day_of(self, message: discord.Message) -> str:
-        """วันที่ของกระดาน = วันที่ (เวลาไทย) ที่โพสต์ข้อความนั้น"""
-        return message.created_at.astimezone(self.cfg.tz).date().isoformat()
+    async def _board(self, message_id: int) -> dict | None:
+        return await self.db.fetchone("SELECT * FROM rollcall_boards WHERE message_id = ?", (message_id,))
 
-    async def _rows(self, day: str) -> list[dict]:
-        return await self.db.fetchall(
-            "SELECT * FROM daily_checkin WHERE day = ? ORDER BY checked_at", (day,)
+    async def board_embed(self, guild: discord.Guild | None, board: dict) -> discord.Embed:
+        rows = await self.db.fetchall(
+            "SELECT * FROM rollcall_answers WHERE message_id = ? ORDER BY answered_at", (board["message_id"],)
         )
-
-    async def board_embed(self, guild: discord.Guild | None, day: str) -> discord.Embed:
-        rows = await self._rows(day)
-        came = [r for r in rows if r["status"] == STATUS_IN]
-        off = [r for r in rows if r["status"] == STATUS_OFF]
-        answered = {r["user_id"] for r in rows}
-        waiting = [m for m in staff_members(guild, self.cfg.staff_role_ids) if m.id not in answered]
-
-        def lines(items: list[dict]) -> str:
-            text = "\n".join(f"<@{r['user_id']}> · {discord_ts(from_iso(r['checked_at']))}" for r in items)
-            return text[:1024] or "-"
-
-        date_text = dt.date.fromisoformat(day).strftime("%d/%m/%Y")
+        closed = bool(board["closed"])
+        desc = []
+        if board.get("when_text"):
+            desc.append(f"🗓️ **{board['when_text']}**")
+        desc.append(
+            "🔒 ปิดเช็คชื่อแล้ว" if closed else "กดปุ่มด้านล่างเพื่อตอบ เปลี่ยนคำตอบได้จนกว่าแอดมินจะปิดค่ะ"
+        )
+        if board["staff_only"]:
+            desc.append("👥 เฉพาะพนักงาน")
         embed = discord.Embed(
-            title=f"📋 เช็คชื่อพนักงาน · {date_text}",
-            description="กดปุ่มด้านล่างเพื่อเช็คชื่อวันนี้ได้เลยค่ะ\n┗ เปลี่ยนใจ กดอีกปุ่มได้",
-            color=COLOR_MAIN,
+            title=f"📋 เช็คชื่อ · {board['topic']}",
+            description="\n".join(desc),
+            color=COLOR_OK if closed else COLOR_MAIN,
         )
-        embed.add_field(name=f"✅ มาทำงาน ({len(came)})", value=lines(came), inline=False)
-        embed.add_field(name=f"🛌 หยุด ({len(off)})", value=lines(off), inline=False)
-        if waiting:
-            embed.add_field(
-                name=f"⏳ ยังไม่เช็คชื่อ ({len(waiting)})",
-                value=", ".join(m.mention for m in waiting)[:1024],
-                inline=False,
-            )
+        for key, (emoji, label) in STATUSES.items():
+            people = [r for r in rows if r["status"] == key]
+            value = "\n".join(f"<@{r['user_id']}> · {discord_ts(from_iso(r['answered_at']))}" for r in people)
+            embed.add_field(name=f"{emoji} {label} ({len(people)})", value=value[:1024] or "-", inline=True)
+        if board["staff_only"]:
+            answered = {r["user_id"] for r in rows}
+            waiting = [m for m in staff_members(guild, self.cfg.staff_role_ids) if m.id not in answered]
+            if waiting:
+                embed.add_field(
+                    name=f"⏳ ยังไม่ตอบ ({len(waiting)})",
+                    value=", ".join(m.mention for m in waiting)[:1024],
+                    inline=False,
+                )
+        embed.set_footer(text=f"ตั้งโดยแอดมิน · {len(rows)} คนตอบแล้ว")
         return embed
 
-    # ------------------------------------------------------------ ปุ่ม
-    async def mark(self, interaction: discord.Interaction, status: str) -> None:
-        attendance = self.bot.get_cog("AttendanceCog")
-        if await attendance._deny_if_not_staff(interaction):
-            return
-        day = self._day_of(interaction.message)
-        today = dt.datetime.now(self.cfg.tz).date().isoformat()
-        if day != today:
-            await interaction.response.send_message(
-                "กระดานนี้เป็นของวันก่อนแล้วค่ะ ใช้กระดานของวันนี้แทนนะคะ", ephemeral=True
-            )
-            return
+    def _is_staff(self, member: discord.abc.User) -> bool:
+        roles = set(self.cfg.staff_role_ids)
+        return isinstance(member, discord.Member) and any(r.id in roles for r in member.roles)
 
+    # ------------------------------------------------------------ ปุ่ม
+    async def answer(self, interaction: discord.Interaction, status: str) -> None:
+        board = await self._board(interaction.message.id)
+        if board is None:
+            await interaction.response.send_message("ไม่พบกระดานนี้ในระบบค่ะ", ephemeral=True)
+            return
+        if board["closed"]:
+            await interaction.response.send_message("กระดานนี้ปิดเช็คชื่อแล้วค่ะ", ephemeral=True)
+            return
+        if board["staff_only"] and not self._is_staff(interaction.user):
+            await interaction.response.send_message("กระดานนี้สำหรับพนักงานเท่านั้นค่ะ", ephemeral=True)
+            return
         await self.db.execute(
-            "INSERT INTO daily_checkin (day, user_id, status, checked_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(day, user_id) DO UPDATE SET status = excluded.status, checked_at = excluded.checked_at",
-            (day, interaction.user.id, status, to_iso(now_utc())),
+            "INSERT INTO rollcall_answers (message_id, user_id, status, answered_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(message_id, user_id) DO UPDATE SET status = excluded.status, answered_at = excluded.answered_at",
+            (board["message_id"], interaction.user.id, status, to_iso(now_utc())),
         )
-        await interaction.response.edit_message(embed=await self.board_embed(interaction.guild, day))
-        text = "✅ เช็คชื่อ **มาทำงาน** วันนี้แล้วค่ะ" if status == STATUS_IN else "🛌 บันทึกว่า **หยุด** วันนี้แล้วค่ะ"
-        await interaction.followup.send(text, ephemeral=True)
+        await interaction.response.edit_message(embed=await self.board_embed(interaction.guild, board))
+        emoji, label = STATUSES[status]
+        await interaction.followup.send(f"{emoji} บันทึกว่า **{label}** แล้วค่ะ", ephemeral=True)
+
+    async def close_board(self, interaction: discord.Interaction) -> None:
+        if not is_admin(interaction.user, self.cfg.admin_role_id):
+            await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
+            return
+        board = await self._board(interaction.message.id)
+        if board is None:
+            await interaction.response.send_message("ไม่พบกระดานนี้ในระบบค่ะ", ephemeral=True)
+            return
+        await self.db.execute("UPDATE rollcall_boards SET closed = 1 WHERE message_id = ?", (board["message_id"],))
+        board["closed"] = 1
+        await interaction.response.edit_message(embed=await self.board_embed(interaction.guild, board), view=None)
 
     # ---------------------------------------------------------- คำสั่ง
-    @app_commands.command(name="daily_checkin", description="โพสต์กระดานเช็คชื่อพนักงานของวันนี้ในห้องนี้ทันที (แอดมิน)")
-    async def daily_checkin(self, interaction: discord.Interaction) -> None:
+    @app_commands.command(name="daily_checkin", description="โพสต์กระดานเช็คชื่อกิจกรรม / ประชุม (แอดมิน)")
+    @app_commands.describe(
+        topic="หัวข้อ เช่น ประชุมทีม, อีเวนต์ฮาโลวีน",
+        when="วันเวลา เช่น เสาร์ 12/10 21:00 (ไม่บังคับ)",
+        staff_only="ให้ตอบได้เฉพาะพนักงาน และแสดงรายชื่อคนที่ยังไม่ตอบ",
+    )
+    async def daily_checkin(
+        self,
+        interaction: discord.Interaction,
+        topic: app_commands.Range[str, 1, 100],
+        when: app_commands.Range[str, 1, 100] | None = None,
+        staff_only: bool = False,
+    ) -> None:
         if not is_admin(interaction.user, self.cfg.admin_role_id):
             await interaction.response.send_message("เฉพาะแอดมินเท่านั้นค่ะ", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        today = dt.datetime.now(self.cfg.tz).date().isoformat()
-        await interaction.channel.send(
-            embed=await self.board_embed(interaction.guild, today), view=DailyCheckView()
+        # โพสต์ก่อนเพื่อได้เลขข้อความ แล้วค่อยบันทึกกระดานและใส่ข้อมูลจริง
+        message = await interaction.channel.send(
+            embed=discord.Embed(title=f"📋 เช็คชื่อ · {topic}", color=COLOR_MAIN), view=RollCallView()
         )
-        await interaction.followup.send("โพสต์กระดานเช็คชื่อวันนี้แล้วค่ะ", ephemeral=True)
+        await self.db.execute(
+            "INSERT INTO rollcall_boards (message_id, channel_id, topic, when_text, staff_only, created_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (message.id, message.channel.id, topic, when, int(staff_only), interaction.user.id, to_iso(now_utc())),
+        )
+        board = await self._board(message.id)
+        await message.edit(embed=await self.board_embed(interaction.guild, board))
+        await interaction.followup.send("โพสต์กระดานเช็คชื่อแล้วค่ะ · ปิดได้ด้วยปุ่ม 🔒 ปิดเช็คชื่อ", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
-    bot.add_view(DailyCheckView())
+    bot.add_view(RollCallView())
+    bot.add_view(LegacyDailyView())
     await bot.add_cog(DailyCheckCog(bot))

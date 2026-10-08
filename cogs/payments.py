@@ -151,7 +151,7 @@ class PaymentsCog(commands.Cog):
             self.cfg,
             title="💳 สรุปยอดชำระเงิน",
             description=(
-                f"บิล `#{job['id']}` — {self.cfg.service_names(job['services'])}\n"
+                f"บิล `#{job['id']}` · {self.cfg.service_names(job['services'])}\n"
                 f"พนักงาน: {' '.join(f'<@{s}>' for s in job_staff_ids(job))}"
             ),
             amount=job["total_price"],
@@ -375,7 +375,7 @@ class PaymentsCog(commands.Cog):
         if coins_cog is not None:
             await coins_cog.on_job_paid(job)
 
-        paid_embed = job_embed(self.cfg, job, title="✅ ชำระเงินสำเร็จ — ขอบคุณค่ะ 💜", color=COLOR_OK)
+        paid_embed = job_embed(self.cfg, job, title="✅ ชำระเงินสำเร็จ ขอบคุณค่ะ 💜", color=COLOR_OK)
         paid_embed.set_footer(text="บอทจะแจ้งเตือนก่อนถึงเวลาและก่อนหมดเวลาให้อัตโนมัติ")
         await send_dm(self.bot, job["customer_id"], embed=paid_embed)
         donate = self.bot.get_cog("DonateCog")
@@ -397,7 +397,7 @@ class PaymentsCog(commands.Cog):
             )
 
         await self.log_job_to_sheet(job)
-        return True, f"ยืนยันสลิปแล้ว โดย {admin.mention} — บิล `#{job_id}` สถานะ **PAID**"
+        return True, f"ยืนยันสลิปแล้ว โดย {admin.mention} · บิล `#{job_id}` สถานะ **PAID**"
 
     async def cancel_core(self, job: dict, from_statuses: list[str]) -> bool:
         """งานยกเลิกบิลที่ทุกทางต้องทำเหมือนกัน (แอดมินยกเลิก / พนักงานปฏิเสธ / โดเนทหมดเวลา)
@@ -482,14 +482,14 @@ class PaymentsCog(commands.Cog):
             )
             for child in children:
                 if child["status"] in ("PAID", "COMPLETED"):
-                    child_notes.append(f"⚠️ บิลต่อเวลา `#{child['id']}` ชำระแล้ว — ตรวจสอบ/ยกเลิกแยกเองถ้าต้องคืนเงิน")
+                    child_notes.append(f"⚠️ บิลต่อเวลา `#{child['id']}` ชำระแล้ว ตรวจสอบ/ยกเลิกแยกเองถ้าต้องคืนเงิน")
                     continue
                 await self.cancel_job(child["id"], admin, f"ยกเลิกตามบิลหลัก #{job_id}")
                 child_notes.append(f"ยกเลิกบิลต่อเวลา `#{child['id']}` ด้วย")
 
         if job.get("sheet_logged"):
             sheet_note = (
-                f"⚠️ บิลนี้ลง Google Sheets ไปแล้ว — กรุณาลบแถวบิล `#{job_id}` ในชีตด้วยมือ "
+                f"⚠️ บิลนี้ลง Google Sheets ไปแล้ว กรุณาลบแถวบิล `#{job_id}` ในชีตด้วยมือ "
                 "ไม่งั้นยอดในชีตจะไม่ตรงกับสรุปของบอท"
             )
         else:
@@ -649,7 +649,7 @@ class PaymentsCog(commands.Cog):
                     )
                     if ok:
                         await self.notify_admin_text(
-                            f"⌛ ยกเลิกบิล `#{jid}` อัตโนมัติ — <@{job['customer_id']}> ไม่ได้ส่งสลิปตามกำหนด"
+                            f"⌛ ยกเลิกบิล `#{jid}` อัตโนมัติ <@{job['customer_id']}> ไม่ได้ส่งสลิปตามกำหนด"
                         )
                 elif now - accepted >= pay_remind and await self._once(f"stale:pay:{jid}"):
                     left = int((deadline - now).total_seconds() // 60)
@@ -663,7 +663,7 @@ class PaymentsCog(commands.Cog):
                                 ("💰", "ยอด", f"**{money(job['total_price'])}**"),
                                 ("⏳", "เหลือเวลา", f"**{max(left, 1)} นาที**"),
                             ],
-                            note="ส่งภาพสลิปใน DM นี้ได้เลยค่ะ — เลยเวลาแล้วระบบจะยกเลิกบิลให้อัตโนมัติ",
+                            note="ส่งภาพสลิปใน DM นี้ได้เลยค่ะ เลยเวลาแล้วระบบจะยกเลิกบิลให้อัตโนมัติ",
                             color=COLOR_GOLD,
                         ),
                     )
