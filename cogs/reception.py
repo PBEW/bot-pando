@@ -876,6 +876,21 @@ class ReceptionPanel(discord.ui.View):
         await cog.show_active_jobs(interaction)
 
     @discord.ui.button(
+        label="มาทำงานวันนี้",
+        emoji="🟢",
+        style=discord.ButtonStyle.secondary,
+        custom_id="olp:panel:staff_today",
+    )
+    async def staff_today(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cog: ReceptionCog = interaction.client.get_cog("ReceptionCog")  # type: ignore[assignment]
+        if not cog._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
+            return
+        # มุมมองเดียวกับเมนูแอดมิน: รวมงานที่รับ และรายชื่อคนที่พนักงานไม่รับ (ใช้ตอนเลือกพนักงานเปิดบิล)
+        attendance = interaction.client.get_cog("AttendanceCog")
+        await interaction.response.send_message(embed=await attendance.today_embed(private=True), ephemeral=True)
+
+    @discord.ui.button(
         label="ยืนยันชำระเงิน",
         emoji="✅",
         style=discord.ButtonStyle.success,
@@ -1371,6 +1386,7 @@ class ReceptionCog(commands.Cog):
                     ("🧾 เปิดบิลใหม่", "เลือกลูกค้า · พนักงาน · บริการ · ห้อง คิดราคาให้อัตโนมัติ"),
                     ("⏱️ ต่อเวลา / เพิ่มรอบ", "ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม"),
                     ("📋 งานที่กำลังดำเนินอยู่", "ดูงานที่ยังไม่จบเวลา"),
+                    ("🟢 มาทำงานวันนี้", "ใครเข้างาน รับงานแบบไหน และไม่รับใคร (เหมือนเมนูแอดมิน)"),
                 ]),
                 ("💳 การชำระเงิน", [
                     ("✅ ยืนยันชำระเงิน", "ใส่เลขบิล ลูกค้าจ่ายแล้วแต่ไม่ได้ส่งสลิปผ่านบอท (เหมือน /bill paid)"),
