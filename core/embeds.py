@@ -112,10 +112,10 @@ def job_embed(cfg: Config, job: dict, *, title: str, color: int = COLOR_MAIN) ->
         value=f"<@{job['customer_id']}>" + (f" (คนจ่าย)\n+ {' '.join(f'<@{c}>' for c in others)}" if others else ""),
         inline=True,
     )
-    staff = [job["staff_id"], *[s for s in job.get("co_staff") or [] if s != job["staff_id"]]]
+    staff = [s for s in [job["staff_id"], *[s for s in job.get("co_staff") or [] if s != job["staff_id"]]] if s]
     embed.add_field(
-        name="💃 พนักงาน" if len(staff) == 1 else f"💃 พนักงาน ({len(staff)} คน)",
-        value=" ".join(f"<@{s}>" for s in staff),
+        name="💃 พนักงาน" if len(staff) <= 1 else f"💃 พนักงาน ({len(staff)} คน)",
+        value=" ".join(f"<@{s}>" for s in staff) or "🏪 ร้าน",
         inline=True,
     )
     embed.add_field(name="🚪 ห้อง", value=cfg.room_name(job.get("room")), inline=True)

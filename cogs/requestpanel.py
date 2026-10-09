@@ -130,7 +130,7 @@ class RequestPanel(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(
-        label="โดเนทให้พนักงาน",
+        label="โดเนท",
         emoji="💜",
         style=discord.ButtonStyle.success,
         custom_id="olp:request:donate",
@@ -197,7 +197,7 @@ def request_panel_embed(cfg, guild: discord.Guild | None = None) -> discord.Embe
             ("👥 พนักงานวันนี้", "ใครเข้างาน และรับงานแบบไหนบ้าง"),
         ]),
         ("💜 สนับสนุนพนักงาน", [
-            ("💜 โดเนทให้พนักงาน", "เลือกพนักงาน ใส่ยอด (หรือซื้อ Drink Friend) รับ QR แล้วส่งสลิป"),
+            ("💜 โดเนท", "ให้ร้าน · ทุกคนในร้าน · หรือพนักงานที่เข้างานอยู่ (ซื้อ Drink Friend ได้) รับ QR แล้วส่งสลิป"),
             ("🏆 Top Donate", "อันดับยอดโดเนทของเดือนนี้"),
         ]),
     ]
