@@ -274,9 +274,19 @@ def split_revenue(
     return staff_share, shop_share
 
 
+SHOP_ID = 0  # staff_id = 0 คือโดเนทให้ร้าน (ไม่มีพนักงานรับส่วนแบ่ง)
+
+
 def job_staff_ids(job: dict) -> list[int]:
-    """พนักงานทุกคนในบิล (คนแรก = พนักงานหลักที่กดรับงาน)"""
-    return [job["staff_id"], *[sid for sid in job.get("co_staff") or [] if sid != job["staff_id"]]]
+    """พนักงานทุกคนในบิล (คนแรก = พนักงานหลักที่กดรับงาน) · โดเนทให้ร้านคืนรายการว่าง"""
+    ids = [job["staff_id"], *[sid for sid in job.get("co_staff") or [] if sid != job["staff_id"]]]
+    return [sid for sid in ids if sid != SHOP_ID]
+
+
+def staff_mentions(job: dict) -> str:
+    """ชื่อผู้รับในบิล สำหรับแสดงผล · โดเนทให้ร้านแสดงว่า ร้าน"""
+    ids = job_staff_ids(job)
+    return " ".join(f"<@{s}>" for s in ids) if ids else "🏪 ร้าน"
 
 
 def job_staff_split(cfg: Config, job: dict) -> list[tuple[int, float, float]]:
@@ -285,8 +295,11 @@ def job_staff_split(cfg: Config, job: dict) -> list[tuple[int, float, float]]:
     ส่วนแบ่งแยกตามสัดส่วนเปอร์เซ็นต์ของแต่ละคน โดยผลรวมเท่ากับ staff_share ที่บันทึกไว้ในบิลเสมอ
     """
     ids = job_staff_ids(job)
+    if not ids:  # โดเนทให้ร้าน
+        return []
     portion = job["total_price"] / len(ids)
-    weights = [cfg.staff_percent(sid) for sid in ids]
+    # โดเนท (เช่น ทุกคนในร้าน) หารเท่ากันทุกคน · บิลบริการแบ่งตาม % ของแต่ละคน
+    weights = [1.0] * len(ids) if job.get("job_type") == "DONATE" else [cfg.staff_percent(sid) for sid in ids]
     weight_sum = sum(weights) or len(ids)
     return [
         (sid, round(portion, 2), round(job["staff_share"] * (w or 1) / weight_sum, 2))

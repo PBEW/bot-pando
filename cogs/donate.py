@@ -12,12 +12,14 @@ import discord
 from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, dm_embed
-from core.pricing import split_revenue
-from core.utils import from_iso, money, now_utc, send_dm, staff_members, to_iso
+from core.pricing import SHOP_ID, job_staff_ids, job_staff_split, split_revenue
+from core.utils import from_iso, money, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.donate")
 
 DONATE_KEY = "donate"
+TARGET_SHOP = "shop"
+TARGET_ALL = "all"
 
 
 class DonateAmountModal(discord.ui.Modal):
@@ -40,6 +42,8 @@ class DonateAmountModal(discord.ui.Modal):
             self.amount.default = "1"
         else:
             self.amount.label = f"ยอดโดเนท (บาท) ขั้นต่ำ {view.cog.min_amount:,.0f}"
+        if view.target == TARGET_SHOP:
+            self.message.label = "ข้อความถึงร้าน (ไม่บังคับ)"
             self.amount.placeholder = "เช่น 100"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
@@ -48,30 +52,40 @@ class DonateAmountModal(discord.ui.Modal):
         except ValueError:
             value = 0
         await self.view.cog.create_donation(
-            interaction, self.view.staff_id, self.view.kind, value, str(self.message.value).strip()
+            interaction, self.view.target, self.view.kind, value, str(self.message.value).strip()
         )
 
 
 class DonateView(discord.ui.View):
-    """แผงเลือกพนักงาน + ประเภทโดเนท (เห็นเฉพาะลูกค้าคนกด)"""
+    """แผงเลือกผู้รับ + ประเภทโดเนท (เห็นเฉพาะลูกค้าคนกด)
+
+    ผู้รับ = พนักงานที่กดเข้างานอยู่ตอนนี้ · 🏪 ร้าน · 👥 ทุกคนในร้าน (หารเท่ากันทุกคนที่เข้างาน)
+    """
 
     def __init__(self, cog: "DonateCog", user: discord.abc.User, staff: list[discord.Member]) -> None:
         super().__init__(timeout=300)
         self.cog = cog
         self.cfg = cog.cfg
         self.user = user
-        self.staff_id: int | None = None
+        self.target: str | None = None
         self.kind = "money"
         self.shot_key = cog.shot_key
 
-        if 0 < len(staff) <= 25:
-            self.staff_select = discord.ui.Select(
-                placeholder="💃 เลือกพนักงานที่ต้องการโดเนทให้",
-                options=[discord.SelectOption(label=m.display_name[:100], value=str(m.id)) for m in staff],
-                row=0,
+        options = [discord.SelectOption(label="ร้าน", value=TARGET_SHOP, emoji="🏪", description="สนับสนุนร้านโดยตรง")]
+        if staff:
+            options.append(
+                discord.SelectOption(
+                    label=f"ทุกคนในร้าน ({len(staff)} คน)",
+                    value=TARGET_ALL,
+                    emoji="👥",
+                    description="หารเท่ากันให้พนักงานทุกคนที่เข้างานอยู่ตอนนี้",
+                )
             )
-        else:
-            self.staff_select = discord.ui.UserSelect(placeholder="💃 เลือกพนักงานที่ต้องการโดเนทให้", row=0)
+        options += [
+            discord.SelectOption(label=m.display_name[:100], value=str(m.id), emoji="💃", description="เข้างานอยู่")
+            for m in staff[:23]
+        ]
+        self.staff_select = discord.ui.Select(placeholder="💜 เลือกผู้รับโดเนท", options=options, row=0)
         self.staff_select.callback = self._on_staff
         self.add_item(self.staff_select)
 
@@ -86,9 +100,10 @@ class DonateView(discord.ui.View):
         return interaction.user.id == self.user.id
 
     async def _on_staff(self, interaction: discord.Interaction) -> None:
-        value = self.staff_select.values[0]
-        self.staff_id = int(value) if isinstance(value, str) else value.id
-        await interaction.response.defer()
+        self.target = self.staff_select.values[0]
+        for option in self.staff_select.options:
+            option.default = option.value == self.target
+        await interaction.response.edit_message(view=self)
 
     async def _on_kind(self, interaction: discord.Interaction) -> None:
         self.kind = self.kind_select.values[0]
@@ -98,10 +113,13 @@ class DonateView(discord.ui.View):
 
     @discord.ui.button(label="ถัดไป: ใส่ยอด", emoji="➡️", style=discord.ButtonStyle.success, row=2)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not self.staff_id:
-            await interaction.response.send_message("เลือกพนักงานก่อนนะคะ", ephemeral=True)
+        if not self.target:
+            await interaction.response.send_message("เลือกผู้รับโดเนทก่อนนะคะ", ephemeral=True)
             return
-        if self.staff_id == interaction.user.id:
+        if self.kind == "shot" and self.target == TARGET_SHOP:
+            await interaction.response.send_message("Drink Friend ต้องเลือกพนักงานค่ะ (ร้านดื่มเองไม่ได้ 😆)", ephemeral=True)
+            return
+        if self.target == str(interaction.user.id):
             await interaction.response.send_message("โดเนทให้ตัวเองไม่ได้ค่ะ", ephemeral=True)
             return
         await interaction.response.send_modal(DonateAmountModal(self))
@@ -144,18 +162,29 @@ class DonateCog(commands.Cog):
             )
             return
 
-        staff = [m for m in staff_members(interaction.guild, self.cfg.staff_role_ids) if m.id != interaction.user.id]
+        staff = [m for m in await self.on_duty_staff(interaction.guild) if m.id != interaction.user.id]
         embed = discord.Embed(
-            title="💜 โดเนทให้พนักงาน",
+            title="💜 โดเนท",
             description=(
-                "1️⃣ เลือก**พนักงาน**\n"
+                "1️⃣ เลือก**ผู้รับ** · 🏪 ร้าน · 👥 ทุกคนในร้าน · หรือพนักงานที่เข้างานอยู่\n"
                 "2️⃣ เลือก**ประเภท** · โดเนทเงิน 💵 หรือ Drink Friend 🥃\n"
                 "3️⃣ กด **ถัดไป** ใส่ยอด แล้วรับ QR ชำระเงินทาง DM"
             ),
             color=COLOR_MAIN,
         )
+        if not staff:
+            embed.add_field(name="💤 ตอนนี้ยังไม่มีพนักงานเข้างาน", value="โดเนทให้ร้านได้ค่ะ", inline=False)
         embed.set_footer(text="🏆 ยอดโดเนทนับรวมใน Top Donate ของเดือนนี้ด้วยนะคะ")
         await interaction.response.send_message(embed=embed, view=DonateView(self, interaction.user, staff), ephemeral=True)
+
+    async def on_duty_staff(self, guild: discord.Guild | None) -> list[discord.Member]:
+        """พนักงานที่กดเข้างานอยู่ตอนนี้ (ยังไม่ถูกตัดยอด) — คนเดียวที่รับโดเนทได้"""
+        attendance = self.bot.get_cog("AttendanceCog")
+        if guild is None or attendance is None:
+            return []
+        today = await attendance.today_prefs(on_duty_only=True)
+        members = [guild.get_member(uid) for uid in today]
+        return [m for m in members if m is not None and not m.bot]
 
     async def _pending_donation(self, customer_id: int) -> dict | None:
         for job in await self.db.jobs_by_status(["ACCEPTED", "SLIP_PENDING"]):
@@ -165,14 +194,30 @@ class DonateCog(commands.Cog):
 
     # --------------------------------------------------------- สร้างบิล
     async def create_donation(
-        self, interaction: discord.Interaction, staff_id: int, kind: str, value: int, message: str
+        self, interaction: discord.Interaction, target: str, kind: str, value: int, message: str
     ) -> None:
         guild = interaction.guild
-        staff_ids = set(self.cfg.staff_role_ids)
-        member = guild.get_member(staff_id) if guild else None
-        if member is None or (staff_ids and not staff_ids & {r.id for r in member.roles}):
-            await interaction.response.send_message("คนที่เลือกไม่ใช่พนักงานของร้านค่ะ", ephemeral=True)
+        # ตรวจผู้รับอีกครั้งตอนยืนยัน — พนักงานอาจถูกตัดยอดออกงานไประหว่างที่ลูกค้ากรอกยอด
+        on_duty = [m for m in await self.on_duty_staff(guild) if m.id != interaction.user.id]
+        if target == TARGET_SHOP:
+            recipients: list[discord.Member] = []
+            to_text = "🏪 ร้าน"
+        elif target == TARGET_ALL:
+            recipients = on_duty
+            to_text = f"👥 ทุกคนในร้าน ({len(on_duty)} คน)"
+        else:
+            recipients = [m for m in on_duty if str(m.id) == target]
+            to_text = recipients[0].mention if recipients else ""
+        if target != TARGET_SHOP and not recipients:
+            await interaction.response.send_message(
+                "พนักงานที่เลือกไม่ได้เข้างานอยู่แล้วค่ะ ลองเปิดเมนูโดเนทใหม่ หรือโดเนทให้ร้านแทนนะคะ", ephemeral=True
+            )
             return
+        if kind == "shot" and not recipients:
+            await interaction.response.send_message("Drink Friend ต้องเลือกพนักงานค่ะ", ephemeral=True)
+            return
+        staff_id = recipients[0].id if recipients else SHOP_ID
+        co_staff = [m.id for m in recipients[1:]]
 
         if kind == "shot":
             if not 1 <= value <= 50:
@@ -195,6 +240,8 @@ class DonateCog(commands.Cog):
         now = now_utc()
         if kind == "shot":
             staff_share, shop_share = split_revenue(self.cfg, staff_id, total, {self.shot_key: total})
+        elif not recipients:  # โดเนทให้ร้าน: เข้าร้านทั้งหมด
+            staff_share, shop_share = 0.0, round(total, 2)
         else:
             # โดเนทเงิน: ร้านไม่หัก ให้พนักงานตาม donate.staff_percent (ค่าเริ่มต้น 100%)
             percent = float(self.cfg.get("donate.staff_percent", 100))
@@ -205,6 +252,7 @@ class DonateCog(commands.Cog):
             job_type="DONATE",
             customer_id=interaction.user.id,
             staff_id=staff_id,
+            co_staff=co_staff,
             services=services,
             note=message or None,
             start_time=to_iso(now),
@@ -232,25 +280,27 @@ class DonateCog(commands.Cog):
             return
 
         await interaction.followup.send(
-            f"สร้างรายการโดเนท `#{job_id}` ให้ {member.mention} ยอด **{money(total)}** แล้วค่ะ\n"
+            f"สร้างรายการโดเนท `#{job_id}` ให้ {to_text} ยอด **{money(total)}** แล้วค่ะ\n"
             "ตรวจสอบ DM ของบอท สแกน QR แล้วส่งภาพสลิปกลับมาได้เลย 💜",
             ephemeral=True,
         )
 
     async def on_donation_paid(self, job: dict) -> None:
         """เรียกจาก PaymentsCog หลังแอดมินยืนยันสลิปของบิล DONATE"""
-        embed = dm_embed(
-            "💜 มีคนโดเนทให้คุณ!",
-            [
-                ("👤", "จาก", f"<@{job['customer_id']}>"),
-                ("🎁", "โดเนท", self.cfg.service_names(job["services"])),
-                ("💵", "ยอด", money(job["total_price"])),
-                ("💜", "ส่วนแบ่งของคุณ", f"**{money(job['staff_share'])}**"),
-            ],
-            note=f"💌 {job['note'][:900]}" if job.get("note") else None,
-            color=COLOR_GOLD,
-        )
-        await send_dm(self.bot, job["staff_id"], embed=embed)
+        split = job_staff_split(self.cfg, job)
+        for staff_id, _, share in split:
+            embed = dm_embed(
+                "💜 มีคนโดเนทให้คุณ!" if len(split) == 1 else "💜 มีคนโดเนทให้ทุกคนในร้าน!",
+                [
+                    ("👤", "จาก", f"<@{job['customer_id']}>"),
+                    ("🎁", "โดเนท", self.cfg.service_names(job["services"])),
+                    ("💵", "ยอด", money(job["total_price"]) + (f" (หาร {len(split)} คน)" if len(split) > 1 else "")),
+                    ("💜", "ส่วนแบ่งของคุณ", f"**{money(share)}**"),
+                ],
+                note=f"💌 {job['note'][:900]}" if job.get("note") else None,
+                color=COLOR_GOLD,
+            )
+            await send_dm(self.bot, staff_id, embed=embed)
 
         channel = self.bot.get_channel(self.cfg.channel_id("announce"))
         if channel is not None and self.cfg.get("donate.announce", True):
@@ -258,13 +308,20 @@ class DonateCog(commands.Cog):
                 embed=discord.Embed(
                     title="💜 ขอบคุณสำหรับโดเนทค่ะ!",
                     description=(
-                        f"<@{job['customer_id']}> ➜ <@{job['staff_id']}>\n"
+                        f"<@{job['customer_id']}> ➜ {self._to_text(job)}\n"
                         f"┗ 🎁 {self.cfg.service_names(job['services'])} · **{money(job['total_price'])}**"
                     ),
                     color=COLOR_GOLD,
                 ),
                 allowed_mentions=discord.AllowedMentions(users=False),
             )
+
+    @staticmethod
+    def _to_text(job: dict) -> str:
+        ids = job_staff_ids(job)
+        if not ids:
+            return "🏪 ร้าน"
+        return f"👥 ทุกคนในร้าน ({len(ids)} คน)" if len(ids) > 1 else f"<@{ids[0]}>"
 
     async def expire_unpaid(self) -> None:
         """ยกเลิกโดเนทที่ลูกค้าไม่ส่งสลิปภายในเวลาที่กำหนด (เรียกจากลูป scheduler)"""

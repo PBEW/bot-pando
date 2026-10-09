@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 from core.cycle import cycle_title
-from core.pricing import job_staff_ids, job_staff_split, release_quota_for_job
+from core.pricing import job_staff_ids, job_staff_split, release_quota_for_job, staff_mentions
 from core.embeds import (
     COLOR_DANGER,
     COLOR_GOLD,
@@ -152,7 +152,7 @@ class PaymentsCog(commands.Cog):
             title="💳 สรุปยอดชำระเงิน",
             description=(
                 f"บิล `#{job['id']}` · {self.cfg.service_names(job['services'])}\n"
-                f"พนักงาน: {' '.join(f'<@{s}>' for s in job_staff_ids(job))}"
+                f"ผู้รับ: {staff_mentions(job)}"
             ),
             amount=job["total_price"],
         )
@@ -266,7 +266,7 @@ class PaymentsCog(commands.Cog):
             title = f"🔎 สลิปรอตรวจสอบ · บิล #{ref_id}"
             desc = rows_text([
                 ("👤", "ลูกค้า", f"<@{record['customer_id']}>"),
-                ("💃", "พนักงาน", " ".join(f"<@{s}>" for s in job_staff_ids(record))),
+                ("💃", "พนักงาน", staff_mentions(record)),
                 ("🛎️", "บริการ", self.cfg.service_names(record["services"])),
                 ("💰", "ยอด", f"**{money(record['total_price'])}**"),
             ])
@@ -543,7 +543,8 @@ class PaymentsCog(commands.Cog):
         guild = self.bot.get_guild(job["guild_id"])
         start, end = from_iso(job["start_time"]), from_iso(job["end_time"])
         customer_name = await display_name(self.bot, guild, job["customer_id"])
-        split = job_staff_split(self.cfg, job)
+        # โดเนทให้ร้าน: ลงชีต 1 แถว ผู้รับ = ร้าน ส่วนแบ่งพนักงาน 0
+        split = job_staff_split(self.cfg, job) or [(0, job["total_price"], 0.0)]
         group_note = f"ทีม {len(split)} คน · " if len(split) > 1 else ""
         if job.get("co_customers"):
             group_note += f"ลูกค้า {1 + len(job['co_customers'])} คน · "
@@ -560,7 +561,7 @@ class PaymentsCog(commands.Cog):
                 fmt_time(end, tz),
                 customer_name,
                 f"'{job['customer_id']}",
-                await display_name(self.bot, guild, staff_id),
+                await display_name(self.bot, guild, staff_id) if staff_id else "ร้าน",
                 f"'{staff_id}",
                 self.cfg.service_names(job["services"]),
                 self.cfg.room_name(job.get("room")),
