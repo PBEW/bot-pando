@@ -1135,6 +1135,7 @@ BOT_SLOTS = [
     ("ch_announce", "channel", "📣 ห้องประกาศ", "channels.announce", False, "Top Donate · โดเนท · ขอบคุณ · อีเวนต์"),
     ("ch_ticket", "channel", "💬 ห้องตั๋วสอบถาม", "channels.ticket", False, "ลูกค้าทัก DM / รับเรื่อง (ไม่ตั้ง = ห้องแอดมิน)"),
     ("ch_slip", "channel", "🧾 ห้องตรวจสลิป", "channels.slip", False, "สลิปรอยืนยัน (ไม่ตั้ง = ห้องแอดมิน)"),
+    ("ch_review_check", "channel", "📝 ห้องตรวจรีวิว", "channels.review_check", False, "รีวิวรออนุมัติ ✅/❌ (ไม่ตั้ง = ห้องแอดมิน)"),
     ("ch_attendance", "channel", "🕒 ห้องเข้างาน", "channels.attendance", False, "พนักงานเข้างาน/ตัดยอด (ไม่ตั้ง = ห้องแอดมิน)"),
     ("ch_log", "channel", "📝 ห้อง Log", "channels.log", False, "บันทึกการแก้ตั้งค่า (ไม่ตั้ง = ห้องแอดมิน)"),
     ("role_admin", "role", "🛠️ Role แอดมิน", "roles.admin", False, "ใช้เมนูแอดมิน/ตั้งค่า/ยืนยันสลิป"),
@@ -1145,7 +1146,7 @@ BOT_SLOTS = [
 ]
 
 # ห้องที่ไม่ตั้งก็ได้ (ไม่ตั้ง = ส่งเข้าห้องแอดมิน) — ไม่นับเป็น "ยังขาด"
-OPTIONAL_SLOTS = {"channels.log", "channels.ticket", "channels.slip", "channels.attendance"}
+OPTIONAL_SLOTS = {"channels.log", "channels.ticket", "channels.slip", "channels.attendance", "channels.review_check"}
 
 BOT_FEATURES = [
     ("donate.enabled", "💜 ระบบโดเนท", True),

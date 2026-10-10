@@ -280,7 +280,7 @@ class ReviewsCog(commands.Cog):
         embed.add_field(name="ข้อความ", value=f"```\n{content[:900]}\n```", inline=False)
 
         payments = self.bot.get_cog("PaymentsCog")
-        msg = await payments.notify_admin(embed=embed, view=review_admin_view(review_id))
+        msg = await payments.notify_admin(embed=embed, view=review_admin_view(review_id), topic="review_check")
         if msg is not None:
             await self.db.update_review(review_id, admin_msg_id=msg.id)
 
