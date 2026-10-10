@@ -5,6 +5,7 @@
   "channels": {
     "admin": 0,
     "review": 0,
+    "review_check": 0,
     "announce": 0,
     "log": 0
   },
