@@ -274,6 +274,11 @@ class SchedulerCog(commands.Cog):
         embed.add_field(name="📥 รายรับรวม (In)", value=f"**{money(total_in)}**", inline=True)
         embed.add_field(name="📤 ส่วนแบ่งพนักงาน (Out)", value=money(total_out), inline=True)
         embed.add_field(name="🏪 รายได้เข้าร้าน", value=money(total_shop), inline=True)
+        withdrawals = await self.db.withdrawals_between(to_iso(start_local), to_iso(end_local))
+        if withdrawals:
+            total_wd = sum(w["amount"] for w in withdrawals)
+            embed.add_field(name="💸 เบิกใช้", value=f"{money(total_wd)} ({len(withdrawals)} รายการ)", inline=True)
+            embed.add_field(name="💵 คงเหลือร้าน", value=f"**{money(total_shop - total_wd)}**", inline=True)
 
         guild = self.bot.get_guild(self.cfg.guild_id)
         if per_staff:

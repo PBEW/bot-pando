@@ -212,6 +212,20 @@ CREATE TABLE IF NOT EXISTS rollcall_answers (
     PRIMARY KEY (message_id, user_id)
 );
 
+-- เบิกเงินร้านไปใช้ (แอดมินบันทึก) — หักจากรายได้ร้านในสรุปรอบ
+CREATE TABLE IF NOT EXISTS withdrawals (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    amount       REAL    NOT NULL,
+    purpose      TEXT    NOT NULL,
+    note         TEXT,
+    admin_id     INTEGER NOT NULL,
+    created_at   TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE | CANCELLED
+    cancelled_at TEXT,
+    cancelled_by INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_withdrawals_time ON withdrawals(created_at);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_user ON attendance(user_id, clock_out);
 CREATE INDEX IF NOT EXISTS idx_attendance_in ON attendance(clock_in);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
@@ -291,6 +305,29 @@ class Database:
             return
         assign = ", ".join(f"{k} = ?" for k in fields)
         await self.execute(f"UPDATE {table} SET {assign} WHERE id = ?", (*fields.values(), row_id))
+
+    # --------------------------------------------------------- เบิกเงิน
+    async def create_withdrawal(self, **fields: Any) -> int:
+        cols = ", ".join(fields)
+        marks = ", ".join("?" for _ in fields)
+        return await self.execute(f"INSERT INTO withdrawals ({cols}) VALUES ({marks})", tuple(fields.values()))
+
+    async def get_withdrawal(self, wid: int) -> dict | None:
+        return await self.fetchone("SELECT * FROM withdrawals WHERE id = ?", (wid,))
+
+    async def withdrawals_between(self, start_iso: str, end_iso: str) -> list[dict]:
+        return await self.fetchall(
+            "SELECT * FROM withdrawals WHERE status = 'ACTIVE' AND created_at >= ? AND created_at < ? ORDER BY id",
+            (start_iso, end_iso),
+        )
+
+    async def cancel_withdrawal(self, wid: int, admin_id: int, now_iso: str) -> bool:
+        """ยกเลิกรายการเบิก (กดซ้ำ/กดพร้อมกันได้ผลครั้งเดียว)"""
+        return bool(await self.execute_count(
+            "UPDATE withdrawals SET status = 'CANCELLED', cancelled_at = ?, cancelled_by = ? "
+            "WHERE id = ? AND status = 'ACTIVE'",
+            (now_iso, admin_id, wid),
+        ))
 
     # ---------------------------------------------------------------- jobs
     async def create_job(self, **fields: Any) -> int:
