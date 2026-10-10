@@ -31,7 +31,6 @@ from core.utils import (
     parse_start_time,
     purge_old_panels,
     send_dm,
-    staff_members,
     to_iso,
 )
 from core.vip_logic import active_tier, cycle_month_key, vip_only_problem
@@ -243,32 +242,25 @@ class OpenBillWizard(discord.ui.View):
         )
         staff_hint = " (เลือกได้หลายคน)" if max_staff > 1 else ""
 
-        # ถ้าตั้ง roles.staff ไว้ ให้แสดงรายชื่อพนักงานเป็นเมนู (ไม่ต้องพิมพ์ค้นหา ชื่อฟอนต์พิเศษก็เลือกได้)
-        # คนที่เข้างานวันนี้ขึ้นก่อน พร้อมบอกงานที่รับ
-        staff = sorted(staff_members(getattr(opener, "guild", None), self.cfg.staff_role_ids), key=lambda m: m.id not in self.today)
-        if 0 < len(staff) <= 25:
-            self.staff_select = discord.ui.Select(
-                placeholder=f"💃 เลือกพนักงาน{staff_hint}",
-                min_values=1,
-                max_values=min(max_staff, len(staff)),
-                row=1,
-                options=[
-                    discord.SelectOption(
-                        label=m.display_name[:100],
-                        value=str(m.id),
-                        emoji="🟢" if m.id in self.today else "⚪",
-                        description=self._staff_hint(m.id),
-                    )
-                    for m in staff
-                ],
-            )
-        else:
-            self.staff_select = discord.ui.UserSelect(
-                placeholder=f"💃 เลือกพนักงาน{staff_hint}",
-                min_values=1,
-                max_values=min(max_staff, 25),
-                row=1,
-            )
+        # เลือกได้เฉพาะพนักงานที่กดเข้างานอยู่ตอนนี้ (ยังไม่ออกงาน) — today ส่งมาจาก open_bill_panel
+        guild = getattr(opener, "guild", None)
+        staff = [m for m in (guild.get_member(uid) for uid in self.today) if m is not None and not m.bot][:25] if guild else []
+        self.staff_select = discord.ui.Select(
+            placeholder=f"💃 เลือกพนักงานที่เข้างานอยู่{staff_hint}",
+            min_values=1,
+            max_values=max(1, min(max_staff, len(staff))),
+            row=1,
+            options=[
+                discord.SelectOption(
+                    label=m.display_name[:100],
+                    value=str(m.id),
+                    emoji="🟢",
+                    description=self._staff_hint(m.id),
+                )
+                for m in staff
+            ] or [discord.SelectOption(label="ยังไม่มีพนักงานเข้างาน", value="none")],
+            disabled=not staff,
+        )
         self.staff_select.callback = self._on_staff
         self.add_item(self.staff_select)
 
@@ -969,7 +961,13 @@ class ReceptionCog(commands.Cog):
             await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
             return
         attendance = self.bot.get_cog("AttendanceCog")
-        today = await attendance.today_prefs() if attendance else {}
+        today = await attendance.today_prefs(on_duty_only=True) if attendance else {}
+        if not today:
+            await interaction.response.send_message(
+                "⚠️ ตอนนี้ยังไม่มีพนักงานกดเข้างานค่ะ ให้พนักงานกด 🟢 เข้างานที่ /panel_staff ก่อน แล้วค่อยเปิดบิล",
+                ephemeral=True,
+            )
+            return
         wizard = OpenBillWizard(self, interaction.user, today)
         await interaction.response.send_message(
             embed=await wizard.summary_embed(), view=wizard, ephemeral=True
