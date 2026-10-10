@@ -55,11 +55,6 @@ def ensure_vip_defaults(cfg) -> bool:
     if len(pkgs) == 1 and pkgs[0].get("key") == "pandora_6m" and float(pkgs[0].get("price", 0)) == 365:
         cfg.data["vip_packages"] = json.loads(json.dumps(DEFAULT_VIP_PACKAGES))
         changed = True
-    # เดิม Party Room บวกเวลาตามจำนวน VIP ในบิล — ร้านเปลี่ยนเป็นบวกครั้งเดียวต่อบิล
-    benefits = cfg.data.get("vip_benefits") or {}
-    if benefits.get("stack_services") == ["party_room"]:
-        benefits["stack_services"] = []
-        changed = True
     if cfg.service(VIP_DATE_KEY) is None:
         cfg.data.setdefault("services", []).append(dict(DEFAULT_VIP_DATE_SERVICE))
         changed = True
