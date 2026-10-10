@@ -24,7 +24,7 @@
     "accept_options": [
       {
         "key": "vip_room",
-        "label": "ห้องบริการ VIP",
+        "label": "ERP",
         "emoji": "🔥"
       },
       {
