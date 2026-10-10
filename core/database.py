@@ -387,6 +387,13 @@ class Database:
         )
         return [self._decode_job(row) for row in rows]
 
+    async def vip_orders_paid_between(self, start_iso: str, end_iso: str) -> list[dict]:
+        """คำสั่งซื้อ VIP ที่ยืนยันสลิปแล้ว (รายได้ VIP) ในช่วงเวลา"""
+        return await self.fetchall(
+            "SELECT * FROM vip_orders WHERE status = 'ACTIVE' AND paid_at >= ? AND paid_at < ? ORDER BY paid_at",
+            (start_iso, end_iso),
+        )
+
     async def donation_totals(self, start_iso: str, end_iso: str) -> list[dict]:
         """ยอดโดเนทรวมรายลูกค้า (บิลที่ชำระแล้วในช่วงเวลา) เรียงมากไปน้อย"""
         return await self.fetchall(

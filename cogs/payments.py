@@ -602,6 +602,41 @@ class PaymentsCog(commands.Cog):
         await self.db.update_job(job["id"], sheet_logged=1)
         await self.db.execute("DELETE FROM meta WHERE key = ?", (progress_key,))
 
+    async def log_vip_to_sheet(self, order: dict) -> bool:
+        """ลงรายได้ VIP ในชีตรอบบิล 1 แถว (เลขที่ V#…, ผู้รับ = ร้าน, ประเภท VIP) — ยอดเข้ารายได้ร้านทั้งหมด"""
+        if not self.bot.sheets.ready:
+            return False
+        key = f"vip_sheet:{order['id']}"
+        if await self.db.get_meta(key):
+            return True
+        tz = self.cfg.tz
+        paid = from_iso(order.get("paid_at")) or now_utc()
+        guild = self.bot.get_guild(order["guild_id"])
+        pkg = self.cfg.vip_package(order["package_key"]) or {}
+        note = f"โค้ด {order['discount_code']} -{order['discount_amount']:,.0f}" if order.get("discount_code") else ""
+        row = [
+            f"V#{order['id']}",
+            fmt_date(paid, tz),
+            fmt_time(paid, tz),
+            "",
+            await display_name(self.bot, guild, order["customer_id"]),
+            f"'{order['customer_id']}",
+            "ร้าน",
+            "'0",
+            f"💎 {pkg.get('name', order['package_key'])}",
+            "",
+            order["total_price"],
+            0,
+            order["total_price"],
+            "VIP",
+            self.cfg.vip_tier_name(pkg.get("tier")) if pkg.get("tier") else "",
+            note,
+        ]
+        if not await self.bot.sheets.append_job_row(cycle_title(self.cfg, paid.astimezone(tz)), row):
+            return False
+        await self.db.set_meta(key, to_iso(now_utc()))
+        return True
+
     async def backfill_sheet(self) -> int:
         """ลงชีตให้บิลที่ชำระแล้วแต่ยังไม่เคยลง (เช่น ตอน Sheets ยังไม่มีสิทธิ์เขียน) — คืนจำนวนบิลที่ลงได้"""
         if not self.bot.sheets.ready:
@@ -612,6 +647,9 @@ class PaymentsCog(commands.Cog):
                 continue
             await self.log_job_to_sheet(job)
             if (await self.db.get_job(job["id"]) or {}).get("sheet_logged"):
+                done += 1
+        for order in await self.db.fetchall("SELECT * FROM vip_orders WHERE status = 'ACTIVE' AND paid_at IS NOT NULL"):
+            if not await self.db.get_meta(f"vip_sheet:{order['id']}") and await self.log_vip_to_sheet(order):
                 done += 1
         if done:
             log.info("เติมบิลที่ตกหล่นลง Google Sheets %d ใบ", done)
