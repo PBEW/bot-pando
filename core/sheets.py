@@ -70,7 +70,7 @@ SUMMARY_BLOCK = [
     ["💃 จ่ายพนักงาน (Out)", "=SUM(L2:L)", "", ""],
     ["🏠 รายได้เข้าร้าน", "=SUM(M2:M)", "", ""],
     # บิลที่มีพนักงานหลายคนเขียนแถวละคน (เลขบิลซ้ำ) จึงต้องนับแบบไม่ซ้ำ
-    ["🧾 จำนวนบิล", "=COUNTUNIQUE(A2:A)", "", ""],
+    ["🧾 จำนวนบิล", "=IFERROR(COUNTUNIQUE(FILTER(A2:A,A2:A<>\"\",N2:N<>\"VIP\")),0)", "💎 รายได้ VIP", "=SUMIF(N2:N,\"VIP\",K2:K)"],
     ["", "", "", ""],
     ["พนักงาน", "ยอดบิล", "ส่วนแบ่ง (ต้องโอน)", "💳 บัญชีรับเงิน"],
     [
@@ -225,6 +225,8 @@ def cycle_style_requests(sheet_id: int) -> list[dict]:
         _cell(sheet_id, 2, 3, R, R + 1, {"backgroundColor": _rgb(ORANGE_LIGHT)}),
         _cell(sheet_id, 3, 4, R, R + 1, {"backgroundColor": _rgb(BLUE_LIGHT), "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": _rgb(BLUE)}}),
         _cell(sheet_id, 4, 5, R, R + 1, {"numberFormat": {"type": "NUMBER", "pattern": "#,##0"}}),
+        _cell(sheet_id, 4, 5, S, S + 1, {"backgroundColor": _rgb("#EDE7F6"), "textFormat": {"bold": True}}),
+        _cell(sheet_id, 4, 5, T, T + 1, {"numberFormat": {"type": "NUMBER", "pattern": MONEY}, "textFormat": {"bold": True}, "horizontalAlignment": "LEFT"}),
         _box(sheet_id, 0, 5, Q, S + 1),
         # แถวเบิกเงิน / คงเหลือร้าน
         _cell(sheet_id, 5, 6, Q, Q + 1, {"backgroundColor": _rgb(PINK_LIGHT), "textFormat": {"bold": True}}),
@@ -239,6 +241,7 @@ def cycle_style_requests(sheet_id: int) -> list[dict]:
         # ไฮไลต์ทั้งแถว: โดเนท = ชมพู, ต่อเวลา = เหลือง
         _row_rule(sheet_id, '=$N2="โดเนท"', PINK_LIGHT, 0),
         _row_rule(sheet_id, '=$N2="ต่อเวลา"', YELLOW_LIGHT, 1),
+        _row_rule(sheet_id, '=$N2="VIP"', "#EDE7F6", 2),
         # ปุ่มตัวกรอง/เรียงลำดับบนหัวตาราง
         {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 16)}}},
     ]

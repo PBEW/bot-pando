@@ -463,6 +463,7 @@ class VipCog(commands.Cog):
         payments = self.bot.get_cog("PaymentsCog")
         if payments is not None:
             await payments.release_pending_slip(order["customer_id"], "VIP", order_id)
+            await payments.log_vip_to_sheet(await self.db.get_vip_order(order_id))
         else:
             await self.db.clear_pending_slip(order["customer_id"], "VIP", order_id)
 

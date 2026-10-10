@@ -254,6 +254,10 @@ class SchedulerCog(commands.Cog):
         total_in = sum(j["total_price"] for j in jobs)
         total_out = sum(j["staff_share"] for j in jobs)
         total_shop = sum(j["shop_share"] for j in jobs)
+        vip_orders = await self.db.vip_orders_paid_between(to_iso(start_local), to_iso(end_local))
+        total_vip = sum(o["total_price"] for o in vip_orders)
+        total_in += total_vip
+        total_shop += total_vip
 
         per_staff: dict[int, list[float]] = defaultdict(lambda: [0.0, 0.0, 0])
         for job in jobs:
@@ -274,6 +278,10 @@ class SchedulerCog(commands.Cog):
         embed.add_field(name="📥 รายรับรวม (In)", value=f"**{money(total_in)}**", inline=True)
         embed.add_field(name="📤 ส่วนแบ่งพนักงาน (Out)", value=money(total_out), inline=True)
         embed.add_field(name="🏪 รายได้เข้าร้าน", value=money(total_shop), inline=True)
+        if vip_orders:
+            embed.add_field(
+                name="💎 รายได้ VIP", value=f"{money(total_vip)} ({len(vip_orders)} รายการ · รวมในรายรับ/รายได้ร้านแล้ว)", inline=False
+            )
         withdrawals = await self.db.withdrawals_between(to_iso(start_local), to_iso(end_local))
         if withdrawals:
             total_wd = sum(w["amount"] for w in withdrawals)
