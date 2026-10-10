@@ -13,6 +13,14 @@ from core.pricing import job_staff_ids, job_staff_split
 from core.utils import discord_ts, fmt_datetime, from_iso, is_admin, money, now_utc, purge_old_panels, to_iso
 
 
+
+async def period_start(bot, now_local: dt.datetime) -> dt.datetime:
+    """จุดเริ่มรอบปัจจุบัน (นับการกดตัดรอบทันทีด้วย)"""
+    sched = bot.get_cog("SchedulerCog")
+    if sched is None:
+        return cycle_start_local(now_local, bot.cfg)
+    return await sched.current_period_start(now_local)
+
 class StaffPanel(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
@@ -146,7 +154,7 @@ class StaffPanelCog(commands.Cog):
         if await self._deny(interaction):
             return
         now_local = dt.datetime.now(self.cfg.tz)
-        start = cycle_start_local(now_local, self.cfg)
+        start = await period_start(self.bot, now_local)
         me = interaction.user.id
         mine: list[tuple[dict, float, float]] = []  # (บิล, ยอดส่วนของฉัน, ส่วนแบ่งของฉัน)
         for j in await self.db.jobs_paid_between(to_iso(start), to_iso(now_local)):
