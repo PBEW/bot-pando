@@ -118,7 +118,7 @@ VIP_DATE_KEY = "vip_date"
 DEFAULT_VIP_BENEFITS = {
     # เพิ่มเวลาห้องให้ลูกค้า VIP (นาที)
     "bonus_minutes": {"party_room": 10, "bedroom": 10, "karaoke": 10},
-    # ห้องที่ VIP หลายคนในบิลเดียวบวกเวลาซ้อนกันได้ (VIP 2 คน = +20 นาที) — ห้องอื่นบวกครั้งเดียว
+    # ห้องที่ VIP หลายคนในบิลเดียวบวกเวลาซ้อนกันได้ (VIP 2 คน = +20 นาที) — ห้องอื่นบวกครั้งเดียวต่อบิล
     "stack_services": ["party_room"],
     # Free Date กับพนักงานวันละครั้ง (นับตามวันทำงานของร้าน ตัดยอดตามเวลาตัดยอดเข้างาน)
     "free_date_per_day": 1,
@@ -159,7 +159,7 @@ def perks_lines(cfg, *, compact: bool = False) -> list[str]:
         by_minutes: dict[int, list[str]] = {}
         for k, m in bonus.items():
             by_minutes.setdefault(m, []).append(cfg.service_name(k))
-        lines += [f"เพิ่มเวลา **+{m} นาที** · {' · '.join(names)}" for m, names in by_minutes.items()]
+        lines += [f"เพิ่มเวลา **+{m} นาที/บิล** · {' · '.join(names)}" for m, names in by_minutes.items()]
         lines += [f"{cfg.service_name(k)} ซ้อนเวลาได้ (VIP 2 ท่าน = +{bonus[k] * 2} นาที)" for k in stack]
         if date_svc and per_day > 0:
             lines.append(
@@ -168,7 +168,7 @@ def perks_lines(cfg, *, compact: bool = False) -> list[str]:
         return lines
     if bonus:
         names = ", ".join(f"{cfg.service_name(k)} +{m} นาที" for k, m in bonus.items())
-        lines.append(f"เพิ่มเวลาเข้าห้อง {names}")
+        lines.append(f"เพิ่มเวลาเข้าห้อง {names} ต่อบิล")
     for key in stack:
         lines.append(
             f"เพิ่มเวลาซ้อนกันได้เฉพาะ {cfg.service_name(key)} "

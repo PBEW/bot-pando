@@ -487,16 +487,30 @@ class PaymentsCog(commands.Cog):
                 await self.cancel_job(child["id"], admin, f"ยกเลิกตามบิลหลัก #{job_id}")
                 child_notes.append(f"ยกเลิกบิลต่อเวลา `#{child['id']}` ด้วย")
 
-        if job.get("sheet_logged"):
-            sheet_note = (
-                f"⚠️ บิลนี้ลง Google Sheets ไปแล้ว กรุณาลบแถวบิล `#{job_id}` ในชีตด้วยมือ "
-                "ไม่งั้นยอดในชีตจะไม่ตรงกับสรุปของบอท"
-            )
-        else:
-            sheet_note = "(ไม่บันทึกลง Google Sheets)"
+        sheet_note = await self.remove_job_from_sheet(job)
         reason_suffix = f"\nเหตุผล: {reason}" if reason else ""
         extra = "".join(f"\n{n}" for n in child_notes)
-        return True, f"ยกเลิกบิล `#{job_id}` แล้ว โดย {admin.mention} {sheet_note}{reason_suffix}{extra}"
+        return True, f"ยกเลิกบิล `#{job_id}` แล้ว โดย {admin.mention}\n{sheet_note}{reason_suffix}{extra}"
+
+    async def remove_job_from_sheet(self, job: dict) -> str:
+        """ลบแถวของบิลที่ถูกยกเลิกออกจาก Google Sheets — คืนข้อความบอกผลให้แอดมิน"""
+        job_id = job["id"]
+        progress_key = f"sheet_rows:{job_id}"
+        if not job.get("sheet_logged") and not await self.db.get_meta(progress_key):
+            return "(บิลนี้ยังไม่ได้ลง Google Sheets)"
+        paid = from_iso(job.get("paid_at"))
+        prefer = cycle_title(self.cfg, paid.astimezone(self.cfg.tz)) if paid else None
+        removed = await self.bot.sheets.delete_job_rows(job_id, prefer)
+        if removed is None:
+            return (
+                f"⚠️ ลบแถวบิล `#{job_id}` ใน Google Sheets ไม่สำเร็จ กรุณาลบในชีตด้วยมือ "
+                "ไม่งั้นยอดในชีตจะไม่ตรงกับสรุปของบอท"
+            )
+        await self.db.update_job(job_id, sheet_logged=0)
+        await self.db.execute("DELETE FROM meta WHERE key = ?", (progress_key,))
+        if removed == 0:
+            return f"(ไม่พบแถวบิล `#{job_id}` ในชีต อาจถูกลบไปแล้ว)"
+        return f"🗑️ ลบแถวบิล `#{job_id}` ออกจาก Google Sheets แล้ว ({removed} แถว)"
 
     async def reject_job_by_staff(self, job: dict, staff: discord.abc.User, reason: str) -> bool:
         """พนักงานปฏิเสธงานเพราะแอดมินคีย์บิลผิด — ยกเลิกบิลเงียบๆ (ลูกค้ายังไม่เคยรู้เรื่องบิลนี้)"""

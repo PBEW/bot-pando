@@ -48,6 +48,22 @@ _PAYOUT_LOOKUP = (
     f"'{PAYOUT_SHEET}'!A2:A,'{PAYOUT_SHEET}'!C2:C&\" \"&'{PAYOUT_SHEET}'!D2:D&\" · \"&'{PAYOUT_SHEET}'!E2:E"
     "},2,FALSE),\"⚠️ ยังไม่ได้ให้ข้อมูล\")))"
 )
+WITHDRAW_SHEET = "เบิกเงิน"
+WITHDRAW_HEADERS = ["เลขที่", "วันที่", "เวลา", "รายการ", "💸 จำนวนเงิน", "ผู้เบิก", "ID ผู้เบิก", "หมายเหตุ", "รอบบิล"]
+
+
+def summary_block(cycle_title: str) -> list[list[str]]:
+    """บล็อกสรุปด้านขวาของชีตรอบ — แถว 6 ดึงยอดเบิกของรอบนี้จากแท็บเบิกเงิน แล้วหักจากรายได้ร้าน"""
+    block = [list(r) for r in SUMMARY_BLOCK]
+    block[5] = [
+        "💸 เบิกใช้รอบนี้",
+        f"=SUMIF('{WITHDRAW_SHEET}'!I:I,\"{cycle_title}\",'{WITHDRAW_SHEET}'!E:E)",
+        "💵 คงเหลือร้าน",
+        "=R4-R6",
+    ]
+    return block
+
+
 SUMMARY_BLOCK = [
     ["📊 สรุปรอบนี้", "", "", ""],
     ["💰 ยอดบิลรวม (In)", "=SUM(K2:K)", "", ""],
@@ -210,6 +226,11 @@ def cycle_style_requests(sheet_id: int) -> list[dict]:
         _cell(sheet_id, 3, 4, R, R + 1, {"backgroundColor": _rgb(BLUE_LIGHT), "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": _rgb(BLUE)}}),
         _cell(sheet_id, 4, 5, R, R + 1, {"numberFormat": {"type": "NUMBER", "pattern": "#,##0"}}),
         _box(sheet_id, 0, 5, Q, S + 1),
+        # แถวเบิกเงิน / คงเหลือร้าน
+        _cell(sheet_id, 5, 6, Q, Q + 1, {"backgroundColor": _rgb(PINK_LIGHT), "textFormat": {"bold": True}}),
+        _cell(sheet_id, 5, 6, R, R + 1, {"numberFormat": {"type": "NUMBER", "pattern": MONEY}, "textFormat": {"bold": True, "foregroundColor": _rgb("#C62828")}, "horizontalAlignment": "RIGHT"}),
+        _cell(sheet_id, 5, 6, S, S + 1, {"backgroundColor": _rgb(BLUE_LIGHT), "textFormat": {"bold": True}}),
+        _cell(sheet_id, 5, 6, T, T + 1, {"numberFormat": {"type": "NUMBER", "pattern": MONEY}, "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": _rgb(BLUE)}, "horizontalAlignment": "LEFT"}),
         _cell(sheet_id, 6, 7, Q, T + 1, _header_fmt(PURPLE)),
         _cell(sheet_id, 7, None, R, S + 1, {"numberFormat": {"type": "NUMBER", "pattern": MONEY}}),
         _cell(sheet_id, 7, None, S, S + 1, {"backgroundColor": _rgb(ORANGE_LIGHT), "textFormat": {"bold": True}}),
@@ -224,6 +245,27 @@ def cycle_style_requests(sheet_id: int) -> list[dict]:
     widths = {0: 70, 1: 95, 2: 65, 3: 65, 4: 150, 6: 150, 8: 230, 9: 140, K: 120, L: 130, M: 120, N: 80, 15: 240, Q: 200, R: 130, S: 140, T: 300}
     reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
     reqs += [_hide(sheet_id, col) for col in (5, 7, 14)]  # ID ลูกค้า, ID พนักงาน, ระดับ VIP
+    return reqs
+
+
+def withdraw_style_requests(sheet_id: int) -> list[dict]:
+    reqs: list[dict] = [
+        {"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+        _row_height(sheet_id, 0, 36),
+        _cell(sheet_id, 0, 1, 0, 9, _header_fmt(PURPLE)),
+        _cell(sheet_id, 0, 1, 4, 5, _header_fmt("#C62828")),
+        _cell(sheet_id, 1, None, 0, 1, {"horizontalAlignment": "CENTER", "textFormat": {"bold": True}}),
+        _cell(sheet_id, 1, None, 3, 4, {"wrapStrategy": "WRAP"}),
+        _cell(sheet_id, 1, None, 4, 5, {"numberFormat": {"type": "NUMBER", "pattern": MONEY},
+                                         "backgroundColor": _rgb(PINK_LIGHT), "textFormat": {"bold": True}}),
+        {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 9)}}},
+    ]
+    widths = {0: 70, 1: 100, 2: 70, 3: 240, 4: 120, 5: 150, 7: 240, 8: 150}
+    reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
+    reqs.append(_hide(sheet_id, 6))
     return reqs
 
 
@@ -376,7 +418,7 @@ class SheetsClient:
     def _init_ws(self, ws) -> None:
         assert self._spreadsheet is not None
         ws.update(values=[HEADERS], range_name="A1")
-        ws.update(values=SUMMARY_BLOCK, range_name="Q1", value_input_option="USER_ENTERED")
+        ws.update(values=summary_block(ws.title), range_name="Q1", value_input_option="USER_ENTERED")
         self._spreadsheet.batch_update(
             {"requests": self._clear_conditional_rules(ws.id) + cycle_style_requests(ws.id)}
         )
@@ -406,6 +448,99 @@ class SheetsClient:
         if line > ws.row_count:
             ws.add_rows(200)
         ws.update(values=[row], range_name=f"A{line}:P{line}", value_input_option="USER_ENTERED")
+
+    # ------------------------------------------------------ ลบแถวตามเลขที่
+    def _delete_rows_sync(self, ws, key: str, width: int) -> int:
+        """ลบทุกแถวที่คอลัมน์ A = key (ลบเฉพาะคอลัมน์ A..width แล้วเลื่อนขึ้น ไม่แตะบล็อกสรุปด้านขวา)"""
+        assert self._spreadsheet is not None
+        ids = ws.col_values(1)
+        lines = [i for i, value in enumerate(ids) if i > 0 and str(value).strip() == key]
+        if not lines:
+            return 0
+        requests = [
+            {"deleteRange": {
+                "range": {"sheetId": ws.id, "startRowIndex": i, "endRowIndex": i + 1,
+                          "startColumnIndex": 0, "endColumnIndex": width},
+                "shiftDimension": "ROWS",
+            }}
+            for i in sorted(lines, reverse=True)  # ลบจากล่างขึ้นบน แถวที่เหลือจะได้ไม่เลื่อนผิดตำแหน่ง
+        ]
+        self._spreadsheet.batch_update({"requests": requests})
+        return len(lines)
+
+    async def delete_job_rows(self, job_id: int, prefer_title: str | None = None) -> int | None:
+        """ลบแถวของบิลออกจากชีตรอบบิล — หาในชีตรอบที่ควรอยู่ก่อน ไม่เจอค่อยหาชีตรอบอื่น
+        คืนจำนวนแถวที่ลบ (0 = ไม่พบ) หรือ None ถ้าลบไม่สำเร็จ/ยังไม่ได้เชื่อม Sheets"""
+        if not self.ready:
+            return None
+        async with self._lock:
+            try:
+                return await asyncio.to_thread(self._delete_job_rows_sync, str(job_id), prefer_title)
+            except Exception:  # noqa: BLE001
+                log.exception("ลบแถวบิล #%s ใน Google Sheets ไม่สำเร็จ", job_id)
+                return None
+
+    def _delete_job_rows_sync(self, key: str, prefer_title: str | None) -> int:
+        assert self._spreadsheet is not None
+        sheets = [ws for ws in self._spreadsheet.worksheets() if ws.title.startswith("Cycle_")]
+        sheets.sort(key=lambda ws: ws.title, reverse=True)  # รอบใหม่ก่อน
+        sheets.sort(key=lambda ws: ws.title != prefer_title)  # รอบที่ควรอยู่ขึ้นก่อนสุด
+        for ws in sheets:
+            removed = self._delete_rows_sync(ws, key, len(HEADERS))
+            if removed:
+                return removed
+        return 0
+
+    # ---------------------------------------------------------- เบิกเงิน
+    def _withdraw_ws(self):
+        import gspread
+
+        assert self._spreadsheet is not None
+        try:
+            return self._spreadsheet.worksheet(WITHDRAW_SHEET)
+        except gspread.WorksheetNotFound:
+            ws = self._spreadsheet.add_worksheet(title=WITHDRAW_SHEET, rows=500, cols=len(WITHDRAW_HEADERS))
+            ws.update(values=[WITHDRAW_HEADERS], range_name="A1")
+            self._spreadsheet.batch_update({"requests": withdraw_style_requests(ws.id)})
+            return ws
+
+    async def append_withdraw_row(self, row: list) -> bool:
+        """row ตาม WITHDRAW_HEADERS (คอลัมน์ I = ชื่อชีตรอบบิล)"""
+        if not self.ready:
+            return False
+        async with self._lock:
+            try:
+                await asyncio.to_thread(self._append_withdraw_sync, row)
+                return True
+            except Exception:  # noqa: BLE001
+                log.exception("บันทึกการเบิกเงินลง Google Sheets ไม่สำเร็จ")
+                return False
+
+    def _append_withdraw_sync(self, row: list) -> None:
+        import gspread
+
+        assert self._spreadsheet is not None
+        self._withdraw_ws().append_row(row, value_input_option="USER_ENTERED", table_range="A1")
+        # ชีตรอบที่สร้างก่อนมีระบบเบิกเงินยังไม่มีแถวเบิก/คงเหลือ — เติมให้ (ไม่ต้องรอสั่ง /sheets_format)
+        title = str(row[-1])
+        try:
+            cycle_ws = self._spreadsheet.worksheet(title)
+        except gspread.WorksheetNotFound:
+            return
+        if not cycle_ws.acell("Q6").value:
+            cycle_ws.update(values=[summary_block(title)[5]], range_name="Q6", value_input_option="USER_ENTERED")
+
+    async def delete_withdraw_row(self, wid: int) -> int | None:
+        if not self.ready:
+            return None
+        async with self._lock:
+            try:
+                return await asyncio.to_thread(
+                    lambda: self._delete_rows_sync(self._withdraw_ws(), str(wid), len(WITHDRAW_HEADERS))
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("ลบรายการเบิก #%s ใน Google Sheets ไม่สำเร็จ", wid)
+                return None
 
     async def append_attendance_row(self, row: list) -> bool:
         if not self.ready:
@@ -526,6 +661,9 @@ class SheetsClient:
 
     def _restyle_sync(self, cycle_title: str) -> list[str]:
         done = []
+        ws = self._withdraw_ws()
+        self._spreadsheet.batch_update({"requests": withdraw_style_requests(ws.id)})
+        done.append(WITHDRAW_SHEET)
         self._init_payout_ws(self._payout_ws())
         done.append(PAYOUT_SHEET)
         self._init_ws(self._get_or_create_ws(cycle_title))

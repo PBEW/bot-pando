@@ -8,7 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, menu_item, panel_embed, rows_text
-from core.utils import is_admin, purge_old_panels
+from core.cycle import cycle_start_local, cycle_title
+from core.utils import display_name, fmt_date, fmt_time, from_iso, is_admin, money, now_utc, purge_old_panels, to_iso
 from core.vip_logic import GRANT_DURATIONS, duration_label
 
 NOT_ADMIN = "เฉพาะแอดมินเท่านั้นค่ะ"
@@ -35,6 +36,168 @@ class AdminOnlyView(discord.ui.View):
             return True
         await interaction.response.send_message(NOT_ADMIN, ephemeral=True)
         return False
+
+
+# ---------------------------------------------------------------- เบิกเงิน
+def _parse_amount(raw: str) -> float:
+    try:
+        value = float(raw.replace(",", "").replace("บาท", "").strip())
+    except ValueError:
+        raise ValueError("**จำนวนเงิน** ต้องเป็นตัวเลข เช่น 350 หรือ 1,200") from None
+    if not 0 < value <= 1_000_000:
+        raise ValueError("**จำนวนเงิน** ต้องมากกว่า 0 และไม่เกิน 1,000,000 บาท")
+    return round(value, 2)
+
+
+async def _period_start(bot) -> dt.datetime:
+    """จุดเริ่มรอบปัจจุบัน (นับจากการตัดรอบครั้งล่าสุด เหมือนสรุปยอดรอบนี้)"""
+    now_local = dt.datetime.now(bot.cfg.tz)
+    return await bot.get_cog("SchedulerCog")._period_start(cycle_start_local(now_local, bot.cfg))
+
+
+async def withdraw_embed(bot) -> discord.Embed:
+    cfg = bot.cfg
+    start = await _period_start(bot)
+    now_local = dt.datetime.now(cfg.tz)
+    rows = await bot.db.withdrawals_between(to_iso(start), to_iso(now_local))
+    jobs = await bot.db.jobs_paid_between(to_iso(start), to_iso(now_local))
+    shop = sum(j["shop_share"] for j in jobs)
+    total = sum(r["amount"] for r in rows)
+    embed = discord.Embed(
+        title="💸 เบิกเงินร้าน",
+        description=rows_text([
+            ("📅", "รอบนี้", f"ตั้งแต่ {start:%d/%m/%Y %H:%M}"),
+            ("🏪", "รายได้ร้าน", money(shop)),
+            ("💸", "เบิกไปแล้ว", f"{money(total)} ({len(rows)} รายการ)"),
+            ("💵", "คงเหลือร้าน", f"**{money(shop - total)}**"),
+        ]),
+        color=COLOR_GOLD,
+    )
+    if rows:
+        lines = [
+            f"`#{r['id']}` {fmt_date(from_iso(r['created_at']), cfg.tz)} · "
+            f"**{money(r['amount'])}** · {r['purpose']} · <@{r['admin_id']}>"
+            for r in rows[-10:]
+        ]
+        embed.add_field(name="🧾 รายการล่าสุดของรอบนี้", value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(text="บันทึกลงห้อง Log + แท็บ \"เบิกเงิน\" ใน Google Sheets · หักจากรายได้ร้านในสรุปรอบ")
+    return embed
+
+
+class WithdrawModal(discord.ui.Modal, title="💸 บันทึกเบิกเงิน"):
+    amount = discord.ui.TextInput(label="จำนวนเงิน (บาท)", placeholder="เช่น 350", max_length=12)
+    purpose = discord.ui.TextInput(label="เบิกไปใช้ทำอะไร", placeholder="เช่น ซื้อของตกแต่งห้อง", max_length=100)
+    note = discord.ui.TextInput(
+        label="หมายเหตุ (ถ้ามี)", style=discord.TextStyle.paragraph, required=False, max_length=300,
+        placeholder="เช่น ร้านที่ซื้อ / เลขใบเสร็จ",
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if not _is_admin(interaction):
+            await interaction.response.send_message(NOT_ADMIN, ephemeral=True)
+            return
+        try:
+            amount = _parse_amount(self.amount.value)
+        except ValueError as exc:
+            await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
+            return
+        purpose = self.purpose.value.strip()
+        note = self.note.value.strip()
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        bot = interaction.client
+        cfg = bot.cfg
+        now = now_utc()
+        now_local = now.astimezone(cfg.tz)
+        wid = await bot.db.create_withdrawal(
+            amount=amount, purpose=purpose, note=note or None, admin_id=interaction.user.id, created_at=to_iso(now),
+        )
+        name = await display_name(bot, interaction.guild, interaction.user.id)
+        saved = await bot.sheets.append_withdraw_row([
+            wid, fmt_date(now_local, cfg.tz), fmt_time(now_local, cfg.tz), purpose, amount,
+            name, f"'{interaction.user.id}", note, cycle_title(cfg, now_local),
+        ])
+        await bot.get_cog("PaymentsCog").notify_admin(
+            topic="log",
+            embed=dm_embed(
+                "💸 บันทึกเบิกเงิน",
+                [
+                    ("🧾", "เลขที่", f"`W#{wid}`"),
+                    ("💰", "จำนวน", f"**{money(amount)}**"),
+                    ("🛒", "ใช้ทำ", purpose),
+                    *([("📝", "หมายเหตุ", note)] if note else []),
+                    ("👤", "ผู้เบิก", interaction.user.mention),
+                ],
+                color=COLOR_WARN,
+            ),
+        )
+        sheet_text = "ลง Google Sheets แล้ว" if saved else "⚠️ ยังไม่ได้ลง Google Sheets (ยังไม่เชื่อม/บันทึกไม่สำเร็จ)"
+        await interaction.followup.send(
+            f"✅ บันทึกเบิกเงิน `W#{wid}` {money(amount)} แล้ว · {sheet_text}",
+            embed=await withdraw_embed(bot),
+            view=WithdrawView(),
+            ephemeral=True,
+        )
+
+
+class WithdrawCancelModal(discord.ui.Modal, title="↩️ ยกเลิกรายการเบิก"):
+    number = discord.ui.TextInput(label="เลขที่รายการ (ตัวเลขหลัง W#)", placeholder="เช่น 12", max_length=10)
+    reason = discord.ui.TextInput(label="เหตุผล", placeholder="เช่น ใส่ยอดผิด", required=False, max_length=200)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if not _is_admin(interaction):
+            await interaction.response.send_message(NOT_ADMIN, ephemeral=True)
+            return
+        raw = self.number.value.strip().upper().lstrip("W#").strip()
+        if not raw.isdigit():
+            await interaction.response.send_message("⚠️ เลขที่ต้องเป็นตัวเลข เช่น 12", ephemeral=True)
+            return
+        wid = int(raw)
+        bot = interaction.client
+        row = await bot.db.get_withdrawal(wid)
+        if row is None:
+            await interaction.response.send_message(f"⚠️ ไม่พบรายการ `W#{wid}`", ephemeral=True)
+            return
+        if not await bot.db.cancel_withdrawal(wid, interaction.user.id, to_iso(now_utc())):
+            await interaction.response.send_message(f"รายการ `W#{wid}` ถูกยกเลิกไปแล้วค่ะ", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        removed = await bot.sheets.delete_withdraw_row(wid)
+        reason = self.reason.value.strip()
+        await bot.get_cog("PaymentsCog").notify_admin(
+            topic="log",
+            embed=dm_embed(
+                "↩️ ยกเลิกรายการเบิก",
+                [
+                    ("🧾", "เลขที่", f"`W#{wid}`"),
+                    ("💰", "จำนวน", money(row["amount"])),
+                    ("🛒", "ใช้ทำ", row["purpose"]),
+                    *([("📝", "เหตุผล", reason)] if reason else []),
+                    ("👤", "ยกเลิกโดย", interaction.user.mention),
+                ],
+                color=COLOR_DANGER,
+            ),
+        )
+        sheet_text = (
+            "ลบแถวใน Google Sheets แล้ว" if removed
+            else "⚠️ ลบแถวใน Google Sheets ไม่สำเร็จ/ไม่พบ ตรวจในแท็บ \"เบิกเงิน\" ด้วยค่ะ"
+        )
+        await interaction.followup.send(
+            f"↩️ ยกเลิก `W#{wid}` แล้ว · {sheet_text}",
+            embed=await withdraw_embed(bot),
+            view=WithdrawView(),
+            ephemeral=True,
+        )
+
+
+class WithdrawView(AdminOnlyView):
+    @discord.ui.button(label="บันทึกเบิกเงิน", emoji="➕", style=discord.ButtonStyle.success)
+    async def add(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(WithdrawModal())
+
+    @discord.ui.button(label="ยกเลิกรายการ", emoji="↩️", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(WithdrawCancelModal())
 
 
 # ---------------------------------------------------------------- ให้ VIP
@@ -314,6 +477,13 @@ class AdminPanel(discord.ui.View):
         view = VipGrantView(cfg)
         await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
 
+    @discord.ui.button(label="เบิกเงิน", emoji="💸", style=discord.ButtonStyle.success, custom_id="olp:admin:withdraw", row=2)
+    async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(
+            embed=await withdraw_embed(interaction.client), view=WithdrawView(), ephemeral=True
+        )
+
     @discord.ui.button(label="คำสั่งทั้งหมด", emoji="📖", style=discord.ButtonStyle.secondary, custom_id="olp:admin:help", row=2)
     async def help(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.send_message(
@@ -351,6 +521,7 @@ class AdminPanelCog(commands.Cog):
                     ("✏️ แก้เวลาเข้างาน", "แก้กะล่าสุด หรือเพิ่มกะที่ลืมกด"),
                     ("✂️ ตัดรอบทันที", "สรุปยอดตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้"),
                     ("💎 มอบ VIP", "ให้ VIP สมาชิก 1 วัน ถึง 6 เดือน (ต่อจากวันหมดอายุเดิมได้)"),
+                    ("💸 เบิกเงิน", "บันทึกเงินร้านที่เบิกไปใช้ · หักจากรายได้ร้านในสรุปรอบ · ลงชีต"),
                 ]),
                 ("🩺 ระบบ", [
                     ("🩺 สถานะระบบ", "ห้อง · Role · Google Sheets · งานค้าง"),
