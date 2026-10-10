@@ -51,10 +51,22 @@ def parse_past_time(raw: str, tz) -> dt.datetime:
 
 # ------------------------------------------------- งานที่รับวันนี้ (prefs)
 DEFAULT_ACCEPT_OPTIONS = [
-    {"key": "vip_room", "label": "ห้องบริการ VIP", "emoji": "🔥"},
+    {"key": "vip_room", "label": "ERP", "emoji": "🔥"},
     {"key": "normal_room", "label": "ห้องปกติ", "emoji": "🚪"},
     {"key": "chill", "label": "เล่นชิวๆ", "emoji": "☕"},
 ]
+
+
+def rename_legacy_options(cfg) -> bool:
+    """เปลี่ยนชื่อเดิม "ห้องบริการ VIP" ใน config.json เป็น "ERP" — คืน True ถ้ามีการแก้"""
+    changed = False
+    for opt in cfg.get("attendance.accept_options") or []:
+        if opt.get("key") == "vip_room" and opt.get("label") == "ห้องบริการ VIP":
+            opt["label"] = "ERP"
+            changed = True
+    if changed:
+        cfg.save()
+    return changed
 
 
 def accept_options(cfg) -> list[dict]:
@@ -204,6 +216,7 @@ class AttendanceCog(commands.Cog):
         self.db = bot.db
 
     async def cog_load(self) -> None:
+        rename_legacy_options(self.cfg)
         self.watch_open_shifts.start()
 
     async def cog_unload(self) -> None:
