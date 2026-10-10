@@ -202,6 +202,11 @@ class SchedulerCog(commands.Cog):
         value = await self.db.get_meta("last_cut_at")
         return from_iso(value).astimezone(self.cfg.tz) if value else None
 
+    async def current_period_start(self, now_local: dt.datetime | None = None) -> dt.datetime:
+        """จุดเริ่มรอบปัจจุบัน = ตัดรอบอัตโนมัติล่าสุด หรือกดตัดรอบทันทีล่าสุด (อันที่ใหม่กว่า)"""
+        now_local = now_local or dt.datetime.now(self.cfg.tz)
+        return await self._period_start(cycle_start_local(now_local, self.cfg))
+
     async def _period_start(self, default_start: dt.datetime) -> dt.datetime:
         last = await self._last_cut_at()
         return max(default_start, last) if last else default_start

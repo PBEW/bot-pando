@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from core.cycle import cycle_start_local
+from cogs.staffpanel import period_start
 from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, panel_embed
 from core.utils import (
     TimeParseError,
@@ -398,7 +398,7 @@ class AttendanceCog(commands.Cog):
         if await self._deny_if_not_staff(interaction):
             return
         now_local = dt.datetime.now(self.cfg.tz)
-        start = cycle_start_local(now_local, self.cfg)
+        start = await period_start(self.bot, now_local)
         totals = await self.hours_by_user(start, now_local, interaction.user.id)
         seconds, count = totals.get(interaction.user.id, [0.0, 0])
 
@@ -557,7 +557,7 @@ class AttendanceCog(commands.Cog):
     async def current_hours_embed(self) -> discord.Embed:
         now_local = dt.datetime.now(self.cfg.tz)
         return await self.build_hours_summary(
-            cycle_start_local(now_local, self.cfg), now_local, title="🕒 ชั่วโมงงานรอบปัจจุบัน"
+            await period_start(self.bot, now_local), now_local, title="🕒 ชั่วโมงงานรอบปัจจุบัน"
         )
 
     @app_commands.command(name="attendance_fix", description="แก้เวลาเข้า/ออกงานของกะล่าสุดของพนักงาน (แอดมิน)")
