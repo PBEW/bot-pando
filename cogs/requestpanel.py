@@ -209,8 +209,11 @@ def request_panel_embed(cfg, guild: discord.Guild | None = None) -> discord.Embe
             "🪙 เหรียญของฉัน · 🎁 แลกรางวัล · 🏅 อันดับนักสะสม",
         ))
     if cfg.vip_enabled:
-        pkg = (cfg.vip_packages or [None])[0]
-        name = f"💎 {pkg['name']} · {float(pkg['price']):,.0f} บาท" if pkg else "💎 Pandora VIP"
+        pkgs = cfg.vip_packages
+        name = (
+            "💎 Pandora VIP · " + " · ".join(f"{p.get('months', 1)} เดือน {float(p['price']):,.0f} บาท" for p in pkgs)
+            if pkgs else "💎 Pandora VIP"
+        )
         perks = "\n".join(f"✦ {p}" for p in perks_lines(cfg, compact=True))
         sections.append((
             name,

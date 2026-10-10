@@ -50,6 +50,11 @@ def ensure_vip_defaults(cfg) -> bool:
         if not cfg.data.get(key):
             cfg.data[key] = json.loads(json.dumps(default))
             changed = True
+    # ย้ายแพ็กเกจเดิม (6 เดือน 365 บาท ที่ยังไม่เคยแก้) ไปเป็น 1 เดือน 149 / 3 เดือน 299
+    pkgs = cfg.data.get("vip_packages") or []
+    if len(pkgs) == 1 and pkgs[0].get("key") == "pandora_6m" and float(pkgs[0].get("price", 0)) == 365:
+        cfg.data["vip_packages"] = json.loads(json.dumps(DEFAULT_VIP_PACKAGES))
+        changed = True
     if cfg.service(VIP_DATE_KEY) is None:
         cfg.data.setdefault("services", []).append(dict(DEFAULT_VIP_DATE_SERVICE))
         changed = True

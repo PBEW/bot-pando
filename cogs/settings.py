@@ -1014,7 +1014,7 @@ class VipSettingsView(AdminView):
 
         cfg = self.cfg
         tier = (cfg.vip_tiers or [{}])[0]
-        pkg = (cfg.vip_packages or [{}])[0]
+        pkgs = cfg.vip_packages
         role_id = int(tier.get("role_id") or 0)
         bonus = vip_benefit(cfg, "bonus_minutes") or {}
         stack = vip_benefit(cfg, "stack_services") or []
@@ -1022,7 +1022,11 @@ class VipSettingsView(AdminView):
             title="💎 ตั้งค่า VIP",
             description=rows_text([
                 ("🔌", "สถานะ", "🟢 เปิดใช้งาน" if cfg.vip_enabled else "⚪ ปิดอยู่"),
-                ("📦", "แพ็กเกจ", f"{pkg.get('name', '-')} · {pkg.get('price', 0):,.0f} บาท / {pkg.get('months', '-')} เดือน"),
+                (
+                    "📦",
+                    "แพ็กเกจ",
+                    "\n".join(f"{p.get('name', '-')} · {p.get('price', 0):,.0f} บาท" for p in pkgs) or "-",
+                ),
                 ("🏷️", "Role VIP", f"<@&{role_id}>" if role_id else "⚠️ ยังไม่ตั้ง (ใส่ Role ID ที่ปุ่ม ✏️)"),
                 (
                     "⏱️",
@@ -1036,7 +1040,7 @@ class VipSettingsView(AdminView):
             color=COLOR_GOLD if cfg.vip_enabled else COLOR_MAIN,
         )
         embed.set_footer(
-            text="เปิดครั้งแรก บอทเติมแพ็กเกจ 6 เดือน 365 บาท + VIP Free Date ให้เอง · แล้วโพสต์ /panel_request ใหม่"
+            text="เปิดครั้งแรก บอทเติมแพ็กเกจ 1 เดือน 149 บาท / 3 เดือน 299 บาท + VIP Free Date ให้เอง · แล้วโพสต์ /panel_request ใหม่"
         )
         perks = perks_text(cfg)
         if perks:
@@ -1069,10 +1073,11 @@ class VipModal(discord.ui.Modal, title="แก้แพ็กเกจ VIP"):
         super().__init__()
         from core.vip_logic import vip_benefit
 
-        tier, pkg = cfg.vip_tiers[0], cfg.vip_packages[0]
+        tier = cfg.vip_tiers[0]
+        pkg1, pkg3 = (cfg.vip_package(k) or {} for k in ("pandora_1m", "pandora_3m"))
         bonus = vip_benefit(cfg, "bonus_minutes") or {}
-        self.price = discord.ui.TextInput(label="ราคา (บาท)", default=f"{float(pkg.get('price', 365)):g}", max_length=7)
-        self.months = discord.ui.TextInput(label="อายุแพ็กเกจ (เดือน)", default=str(pkg.get("months", 6)), max_length=3)
+        self.price = discord.ui.TextInput(label="ราคา 1 เดือน (บาท)", default=f"{float(pkg1.get('price', 149)):g}", max_length=7)
+        self.price3 = discord.ui.TextInput(label="ราคา 3 เดือน (บาท)", default=f"{float(pkg3.get('price', 299)):g}", max_length=7)
         self.role = discord.ui.TextInput(
             label="Role ID ของ VIP (0 = ไม่ให้ Role)", default=str(tier.get("role_id") or 0), max_length=22
         )
@@ -1084,14 +1089,14 @@ class VipModal(discord.ui.Modal, title="แก้แพ็กเกจ VIP"):
             default=str(vip_benefit(cfg, "free_date_per_day")),
             max_length=2,
         )
-        for item in (self.price, self.months, self.role, self.bonus, self.free):
+        for item in (self.price, self.price3, self.role, self.bonus, self.free):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         cfg = interaction.client.cfg
         try:
-            price = _num(self.price.value, lo=0, hi=100000, name="ราคา")
-            months = int(_num(self.months.value, lo=1, hi=60, name="อายุแพ็กเกจ"))
+            price = _num(self.price.value, lo=0, hi=100000, name="ราคา 1 เดือน")
+            price3 = _num(self.price3.value, lo=0, hi=100000, name="ราคา 3 เดือน")
             bonus = int(_num(self.bonus.value, lo=0, hi=240, name="เพิ่มเวลาห้อง"))
             free = int(_num(self.free.value, lo=0, hi=10, name="Free Date ต่อวัน"))
             role_text = self.role.value.strip() or "0"
@@ -1105,16 +1110,18 @@ class VipModal(discord.ui.Modal, title="แก้แพ็กเกจ VIP"):
             await interaction.response.send_message("⚠️ ไม่พบ Role ID นี้ในเซิร์ฟเวอร์ค่ะ", ephemeral=True)
             return
 
-        pkg, tier = cfg.data["vip_packages"][0], cfg.data["vip_tiers"][0]
-        pkg.update(price=price, months=months, unit="month")
-        pkg["name"] = f"{tier.get('name', 'VIP')} {months} เดือน"
+        tier = cfg.data["vip_tiers"][0]
+        for key, value in (("pandora_1m", price), ("pandora_3m", price3)):
+            for pkg in cfg.data["vip_packages"]:
+                if pkg.get("key") == key:
+                    pkg["price"] = value
         tier["role_id"] = role_id
         benefits = cfg.data.setdefault("vip_benefits", {})
         keys = list((benefits.get("bonus_minutes") or {}).keys()) or ["party_room", "bedroom", "karaoke"]
         benefits["bonus_minutes"] = {k: bonus for k in keys}
         benefits["free_date_per_day"] = free
         _save(interaction)
-        summary = f"{pkg['name']} {price:,.0f} บาท · Role {role_id or '-'} · เพิ่มเวลา {bonus} นาที · Free Date {free}/วัน"
+        summary = f"1 เดือน {price:,.0f} / 3 เดือน {price3:,.0f} บาท · Role {role_id or '-'} · เพิ่มเวลา {bonus} นาที · Free Date {free}/วัน"
         await log_change(interaction.client, interaction.user, f"แก้ VIP: {summary}")
         view = VipSettingsView(cfg)
         await interaction.response.edit_message(embed=view.embed(), view=view)

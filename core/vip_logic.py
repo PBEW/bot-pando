@@ -109,8 +109,10 @@ DEFAULT_VIP_TIERS = [
     {"key": "pandora", "name": "Pandora VIP", "emoji": "💎", "rank": 1, "role_id": 0, "purchasable": True},
 ]
 DEFAULT_VIP_PACKAGES = [
-    {"key": "pandora_6m", "tier": "pandora", "name": "Pandora VIP 6 เดือน", "emoji": "💎",
-     "price": 365, "unit": "month", "months": 6},
+    {"key": "pandora_1m", "tier": "pandora", "name": "Pandora VIP 1 เดือน", "emoji": "💎",
+     "price": 149, "unit": "month", "months": 1},
+    {"key": "pandora_3m", "tier": "pandora", "name": "Pandora VIP 3 เดือน", "emoji": "💎",
+     "price": 299, "unit": "month", "months": 3},
 ]
 VIP_DATE_KEY = "vip_date"
 DEFAULT_VIP_BENEFITS = {
