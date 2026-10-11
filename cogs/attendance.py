@@ -16,6 +16,8 @@ from discord.ext import commands, tasks
 from cogs.staffpanel import period_start
 from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, panel_embed
 from core.utils import (
+    BUSY_TEXT,
+    busy,
     TimeParseError,
     discord_ts,
     display_name,
@@ -281,6 +283,13 @@ class AttendanceCog(commands.Cog):
 
     async def save_clock_in(self, interaction: discord.Interaction, prefs: dict) -> None:
         """บันทึกเข้างาน (หรืออัปเดตงานที่รับ ถ้าวันนี้เข้างานแล้ว) — เรียกจาก AvoidNoteModal"""
+        with busy(f"clock:{interaction.user.id}") as ok:  # กันกดซ้ำแล้วได้ 2 กะ
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await self._save_clock_in(interaction, prefs)
+
+    async def _save_clock_in(self, interaction: discord.Interaction, prefs: dict) -> None:
         user = interaction.user
         prefs_json = json.dumps(prefs, ensure_ascii=False)
         current = await self.db.open_attendance(user.id)
