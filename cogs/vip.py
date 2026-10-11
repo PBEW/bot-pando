@@ -12,7 +12,7 @@ from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import apply_discount
-from core.utils import fmt_datetime, from_iso, is_admin, money, now_utc, send_dm, to_iso
+from core.utils import BUSY_TEXT, busy, fmt_datetime, from_iso, is_admin, money, now_utc, send_dm, to_iso
 from core.vip_logic import (
     DEFAULT_VIP_BENEFITS,
     DEFAULT_VIP_DATE_SERVICE,
@@ -152,6 +152,16 @@ class VipShopView(discord.ui.View):
         await interaction.response.send_modal(DiscountModal(self))
 
     async def checkout(self, interaction: discord.Interaction, code: str) -> None:
+        if self.is_finished():
+            await interaction.response.send_message("สร้างคำสั่งซื้อไปแล้วค่ะ ตรวจสอบ DM ได้เลย", ephemeral=True)
+            return
+        with busy(f"vip_buy:{interaction.user.id}") as ok:  # กันยืนยันซ้ำแล้วได้ 2 คำสั่งซื้อ
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await self._checkout(interaction, code)
+
+    async def _checkout(self, interaction: discord.Interaction, code: str) -> None:
         pkg = self.cfg.vip_package(self.package_key)
         if pkg is None:
             await interaction.response.send_message("ไม่พบแพ็กเกจนี้ค่ะ", ephemeral=True)
@@ -555,6 +565,8 @@ class VipCog(commands.Cog):
         to_tier_cfg = self.cfg.vip_tier(req["to_tier"])
         if to_tier_cfg is None:
             return False, f"ไม่พบระดับ `{req['to_tier']}` ใน config"
+        if not await self._claim_upgrade(request_id, "APPROVED", admin.id):
+            return False, "คำขอนี้ถูกดำเนินการไปแล้วค่ะ"
 
         now_local = dt.datetime.now(self.cfg.tz)
         existing = await self.db.get_vip_member(req["user_id"])
@@ -578,9 +590,6 @@ class VipCog(commands.Cog):
             expires_iso,
             now_iso,
         )
-        await self.db.update_upgrade_request(
-            request_id, status="APPROVED", handled_at=now_iso, handled_by=admin.id
-        )
 
         await send_dm(
             self.bot,
@@ -597,17 +606,21 @@ class VipCog(commands.Cog):
         )
         return True, f"อนุมัติอัปเกรดเป็น {to_tier_cfg['name']} แล้ว โดย {admin.mention}{role_note}"
 
+    async def _claim_upgrade(self, request_id: int, status: str, admin_id: int) -> bool:
+        """เปลี่ยนสถานะคำขออัปเกรดแบบมีเงื่อนไข — กดซ้ำ/กดพร้อมกันได้ผลครั้งเดียว"""
+        return bool(await self.db.execute_count(
+            "UPDATE vip_upgrade_requests SET status = ?, handled_at = ?, handled_by = ? WHERE id = ? AND status = 'PENDING'",
+            (status, to_iso(now_utc()), admin_id, request_id),
+        ))
+
     async def reject_upgrade_request(
         self, request_id: int, admin: discord.abc.User
     ) -> tuple[bool, str]:
         req = await self.db.get_upgrade_request(request_id)
         if req is None:
             return False, "ไม่พบคำขอนี้"
-        if req["status"] != "PENDING":
+        if req["status"] != "PENDING" or not await self._claim_upgrade(request_id, "REJECTED", admin.id):
             return False, "คำขอนี้ถูกดำเนินการไปแล้วค่ะ"
-        await self.db.update_upgrade_request(
-            request_id, status="REJECTED", handled_at=to_iso(now_utc()), handled_by=admin.id
-        )
         return True, f"ปฏิเสธคำขออัปเกรดแล้ว โดย {admin.mention}"
 
     # ------------------------------------------------------ ตรวจสิทธิ์หมดอายุ

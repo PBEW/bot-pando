@@ -13,7 +13,7 @@ from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, dm_embed
 from core.pricing import SHOP_ID, job_staff_ids, job_staff_split, split_revenue
-from core.utils import from_iso, money, now_utc, send_dm, to_iso
+from core.utils import BUSY_TEXT, busy, from_iso, money, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.donate")
 
@@ -51,9 +51,13 @@ class DonateAmountModal(discord.ui.Modal):
             value = int(str(self.amount.value).replace(",", "").strip())
         except ValueError:
             value = 0
-        await self.view.cog.create_donation(
-            interaction, self.view.target, self.view.kind, value, str(self.message.value).strip()
-        )
+        with busy(f"donate:{interaction.user.id}") as ok:  # กันส่งซ้ำแล้วได้ 2 บิล
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await self.view.cog.create_donation(
+                interaction, self.view.target, self.view.kind, value, str(self.message.value).strip()
+            )
 
 
 class DonateView(discord.ui.View):

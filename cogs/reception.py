@@ -656,6 +656,10 @@ class OpenBillWizard(discord.ui.View):
                 await interaction.response.send_message(f"🎟️ {voucher_problem}", ephemeral=True)
                 return
 
+        if self.is_finished():
+            await interaction.response.send_message("บิลนี้เปิดไปแล้วค่ะ", ephemeral=True)
+            return
+        self.stop()  # กันยืนยันซ้ำ (เปิดฟอร์มใหม่ระหว่างที่บอทกำลังสร้างบิล)
         await interaction.response.defer()
         job_id = await self.cog.create_job(
             guild=interaction.guild,
@@ -815,6 +819,7 @@ class ExtendWizard(discord.ui.View):
             await interaction.response.send_message(problem, ephemeral=True)
             return
 
+        self.stop()  # ปิดปุ่มก่อน await แรก — กดซ้ำเร็วๆ จะไม่เปิดบิลต่อเวลาซ้ำ
         await interaction.response.defer()
         extend_id = await self.cog.create_extend(
             interaction.guild, interaction.user, self.job_id, self.service_keys

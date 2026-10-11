@@ -13,7 +13,7 @@ from discord.ext import commands
 
 from core import coins
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_MAIN, COLOR_OK, dm_embed, progress_bar, rows_text
-from core.utils import display_name, from_iso, is_admin, money, now_utc, send_dm, to_iso
+from core.utils import BUSY_TEXT, busy, display_name, from_iso, is_admin, money, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.coins")
 
@@ -906,6 +906,14 @@ class CoinsCog(commands.Cog):
         await interaction.response.send_message(embed=embed, view=RedeemView(self, interaction.user, bal), ephemeral=True)
 
     async def redeem(self, interaction: discord.Interaction, reward_key: str) -> None:
+        # กันกดแลกซ้ำเร็วๆ (เช็คเหรียญพร้อมกัน 2 ครั้งแล้วหักเกิน)
+        with busy(f"coins:{interaction.user.id}") as ok:
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await self._redeem(interaction, reward_key)
+
+    async def _redeem(self, interaction: discord.Interaction, reward_key: str) -> None:
         item = coins.reward(self.cfg, reward_key)
         uid = interaction.user.id
         if item is None or item.get("retired"):
@@ -1032,6 +1040,16 @@ class CoinsCog(commands.Cog):
         await interaction.response.edit_message(content=None, embed=view.embed(), view=view)
 
     async def start_prank(
+        self, interaction: discord.Interaction, item: dict, prank: str, target: discord.abc.User,
+        performer_id: int, today: dict[int, dict],
+    ) -> None:
+        with busy(f"coins:{interaction.user.id}") as ok:
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await self._start_prank(interaction, item, prank, target, performer_id, today)
+
+    async def _start_prank(
         self, interaction: discord.Interaction, item: dict, prank: str, target: discord.abc.User,
         performer_id: int, today: dict[int, dict],
     ) -> None:

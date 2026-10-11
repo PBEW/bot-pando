@@ -8,7 +8,7 @@ import discord
 from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed, rows_text
-from core.utils import display_name, is_reception, now_utc, send_dm, to_iso
+from core.utils import BUSY_TEXT, busy, display_name, is_reception, now_utc, send_dm, to_iso
 
 log = logging.getLogger("olp.tickets")
 
@@ -85,6 +85,13 @@ class TicketsCog(commands.Cog):
     # ------------------------------------------------------------- เปิดตั๋ว
     async def open_ticket(self, interaction: discord.Interaction, topic: str | None = None) -> None:
         """topic = รายละเอียดที่ลูกค้ากรอกมาก่อน (เช่น คำขอจอง Party Room) แนบไปกับตั๋วทั้งสองฝั่ง"""
+        with busy(f"ticket:{interaction.user.id}") as ok:  # กดซ้ำเร็วๆ = ตั๋วเดียว
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await self._open_ticket(interaction, topic)
+
+    async def _open_ticket(self, interaction: discord.Interaction, topic: str | None = None) -> None:
         existing = await self.db.open_ticket_for_customer(interaction.user.id)
         if existing is not None:
             await interaction.response.send_message(
@@ -164,15 +171,16 @@ class TicketsCog(commands.Cog):
             )
             return
 
-        await interaction.response.defer()
         now = to_iso(now_utc())
-        await self.db.update_ticket(
-            ticket_id,
-            status="ACTIVE",
-            admin_id=interaction.user.id,
-            accepted_at=now,
-            last_activity=now,
-        )
+        # ใครกดรับก่อนได้ก่อน (กดซ้ำ/กดพร้อมกัน = รับครั้งเดียว)
+        if not await self.db.execute_count(
+            "UPDATE tickets SET status = 'ACTIVE', admin_id = ?, accepted_at = ?, last_activity = ? "
+            "WHERE id = ? AND status = 'OPEN'",
+            (interaction.user.id, now, now, ticket_id),
+        ):
+            await interaction.response.send_message("รายการนี้ถูกรับเรื่องหรือปิดไปแล้วค่ะ", ephemeral=True)
+            return
+        await interaction.response.defer()
 
         timeout = self.cfg.ticket_timeout_minutes
         await send_dm(
@@ -246,8 +254,11 @@ class TicketsCog(commands.Cog):
         ticket = await self.db.get_ticket(ticket_id)
         if ticket is None or ticket["status"] == "CLOSED":
             return
-
-        await self.db.update_ticket(ticket_id, status="CLOSED", closed_at=to_iso(now_utc()))
+        if not await self.db.execute_count(
+            "UPDATE tickets SET status = 'CLOSED', closed_at = ? WHERE id = ? AND status != 'CLOSED'",
+            (to_iso(now_utc()), ticket_id),
+        ):
+            return  # มีคนปิดไปก่อนแล้ว ไม่ส่งแจ้งเตือนซ้ำ
         embed = dm_embed(
             "🔒 ปิดรายการสอบถามแล้ว",
             [("🎫", "หมายเลข", f"`T#{ticket_id}`"), ("📝", "เหตุผล", reason)],

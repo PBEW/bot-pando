@@ -236,7 +236,10 @@ class ReviewsCog(commands.Cog):
     async def record_review(
         self, job: dict, stars: int, spice: int, content: str
     ) -> tuple[bool, str]:
-        if await self.db.review_for_job(job["id"]):
+        # จองบิลก่อน (กดส่งซ้ำ/กดพร้อมกัน = รีวิวเดียว)
+        if await self.db.review_for_job(job["id"]) or not await self.db.execute_count(
+            "UPDATE jobs SET reviewed = 1 WHERE id = ? AND reviewed = 0", (job["id"],)
+        ):
             return False, "บิลนี้มีรีวิวอยู่แล้วค่ะ"
 
         guild = self.bot.get_guild(job["guild_id"])
@@ -303,17 +306,17 @@ class ReviewsCog(commands.Cog):
             )
             return
 
+        # จองรีวิวก่อนโพสต์ — กดซ้ำ/กดพร้อมกันได้ผลครั้งเดียว ไม่โพสต์รีวิวซ้ำ
+        if not await self._claim(review_id, "APPROVED", interaction.user.id):
+            await interaction.response.send_message("รีวิวนี้ถูกดำเนินการไปแล้วค่ะ", ephemeral=True)
+            return
         await interaction.response.defer()
-        embed = await self.build_public_embed(review)
-        posted = await channel.send(embed=embed)
-
-        await self.db.update_review(
-            review_id,
-            status="APPROVED",
-            handled_at=to_iso(now_utc()),
-            handled_by=interaction.user.id,
-            public_msg_id=posted.id,
-        )
+        try:
+            posted = await channel.send(embed=await self.build_public_embed(review))
+        except Exception:
+            await self.db.update_review(review_id, status="PENDING", handled_at=None, handled_by=None)
+            raise
+        await self.db.update_review(review_id, public_msg_id=posted.id)
         await self._finish(interaction, f"✅ อนุมัติแล้ว โดย {interaction.user.mention}", COLOR_OK)
         coins_cog = self.bot.get_cog("CoinsCog")
         if coins_cog is not None:
@@ -338,14 +341,17 @@ class ReviewsCog(commands.Cog):
             await interaction.response.send_message("รีวิวนี้ถูกดำเนินการไปแล้วค่ะ", ephemeral=True)
             return
 
+        if not await self._claim(review_id, "REJECTED", interaction.user.id):
+            await interaction.response.send_message("รีวิวนี้ถูกดำเนินการไปแล้วค่ะ", ephemeral=True)
+            return
         await interaction.response.defer()
-        await self.db.update_review(
-            review_id,
-            status="REJECTED",
-            handled_at=to_iso(now_utc()),
-            handled_by=interaction.user.id,
-        )
         await self._finish(interaction, f"❌ ปฏิเสธแล้ว โดย {interaction.user.mention}", COLOR_DANGER)
+
+    async def _claim(self, review_id: int, status: str, user_id: int) -> bool:
+        return bool(await self.db.execute_count(
+            "UPDATE reviews SET status = ?, handled_at = ?, handled_by = ? WHERE id = ? AND status = 'PENDING'",
+            (status, to_iso(now_utc()), user_id, review_id),
+        ))
 
     async def _finish(self, interaction: discord.Interaction, text: str, color: int) -> None:
         message = interaction.message

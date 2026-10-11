@@ -1,6 +1,7 @@
 """ฟังก์ชันช่วยเหลือทั่วไป: เวลา, เงิน, สิทธิ์, การส่ง DM"""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import logging
 from zoneinfo import ZoneInfo
@@ -241,3 +242,26 @@ async def display_name(bot: discord.Client, guild: discord.Guild | None, user_id
         return fetched.display_name
     except discord.HTTPException:
         return f"ผู้ใช้ {user_id}"
+
+
+# ------------------------------------------------------------ กันกดซ้ำ
+_busy_keys: set[str] = set()
+
+
+@contextlib.contextmanager
+def busy(key: str):
+    """กันกดปุ่มซ้ำ/กดพร้อมกันของงานเดียวกัน — ได้ False ถ้างานนี้กำลังทำอยู่ (ให้ผู้เรียกตอบว่ากำลังทำรายการ)
+
+    ใช้แบบ: with busy(f"coins:{uid}") as ok: if not ok: ... return
+    """
+    if key in _busy_keys:
+        yield False
+        return
+    _busy_keys.add(key)
+    try:
+        yield True
+    finally:
+        _busy_keys.discard(key)
+
+
+BUSY_TEXT = "⏳ กำลังทำรายการก่อนหน้าอยู่ รอสักครู่ค่ะ"
