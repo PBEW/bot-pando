@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.cycle import cycle_title, next_cutoff_local
+from core.cycle import cycle_title, day_title, next_cutoff_local
 from core.embeds import COLOR_INFO, COLOR_OK
 from core.utils import fmt_datetime, is_admin
 
@@ -95,7 +95,7 @@ class AdminCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         title = await self.db.get_meta("current_cycle") or cycle_title(self.cfg)
         try:
-            done = await self.bot.sheets.restyle(title)
+            done = await self.bot.sheets.restyle(title, day_title(self.cfg))
         except Exception as exc:  # noqa: BLE001 - แจ้งแอดมินแทนการเงียบ
             await interaction.followup.send(f"❌ จัดรูปแบบไม่สำเร็จ: `{exc}`", ephemeral=True)
             return

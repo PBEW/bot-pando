@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_MAIN, COLOR_OK, COLOR_WARN, dm_embed, menu_item, panel_embed, rows_text
-from core.cycle import cycle_start_local, cycle_title
+from core.cycle import cycle_start_local, cycle_title, day_title
 from core.utils import display_name, fmt_date, fmt_time, from_iso, is_admin, money, now_utc, purge_old_panels, to_iso
 from core.vip_logic import GRANT_DURATIONS, duration_label
 
@@ -115,7 +115,7 @@ class WithdrawModal(discord.ui.Modal, title="💸 บันทึกเบิก
         name = await display_name(bot, interaction.guild, interaction.user.id)
         saved = await bot.sheets.append_withdraw_row([
             wid, fmt_date(now_local, cfg.tz), fmt_time(now_local, cfg.tz), purpose, amount,
-            name, f"'{interaction.user.id}", note, cycle_title(cfg, now_local),
+            name, f"'{interaction.user.id}", note, cycle_title(cfg, now_local), day_title(cfg, now_local),
         ])
         await bot.get_cog("PaymentsCog").notify_admin(
             topic="log",

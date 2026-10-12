@@ -49,15 +49,28 @@ _PAYOUT_LOOKUP = (
     "},2,FALSE),\"⚠️ ยังไม่ได้ให้ข้อมูล\")))"
 )
 WITHDRAW_SHEET = "เบิกเงิน"
-WITHDRAW_HEADERS = ["เลขที่", "วันที่", "เวลา", "รายการ", "💸 จำนวนเงิน", "ผู้เบิก", "ID ผู้เบิก", "หมายเหตุ", "รอบบิล"]
+WITHDRAW_HEADERS = ["เลขที่", "วันที่", "เวลา", "รายการ", "💸 จำนวนเงิน", "ผู้เบิก", "ID ผู้เบิก", "หมายเหตุ", "รอบบิล", "วันทำงาน"]
+
+
+# แท็บสัปดาห์ (Cycle_): ตารางแยกรายวันที่คอลัมน์ V:Y (รวมจากคอลัมน์ วันที่/ยอด ของแท็บเดียวกัน)
+DAILY_BREAKDOWN = [
+    ["📅 แยกรายวัน", "💰 ยอดบิล", "💃 พนักงาน", "🏠 รายได้ร้าน"],
+    [
+        "=IFERROR(QUERY(B2:M,\"select B, sum(K), sum(L), sum(M) where B is not null group by B "
+        "label sum(K) '', sum(L) '', sum(M) ''\",0),\"\")",
+        "", "", "",
+    ],
+]
 
 
 def summary_block(cycle_title: str) -> list[list[str]]:
     """บล็อกสรุปด้านขวาของชีตรอบ — แถว 6 ดึงยอดเบิกของรอบนี้จากแท็บเบิกเงิน แล้วหักจากรายได้ร้าน"""
     block = [list(r) for r in SUMMARY_BLOCK]
+    block[0][0] = "📊 สรุปวันนี้" if cycle_title.startswith("Day_") else "📊 สรุปทั้งสัปดาห์"
     block[5] = [
-        "💸 เบิกใช้รอบนี้",
-        f"=SUMIF('{WITHDRAW_SHEET}'!I:I,\"{cycle_title}\",'{WITHDRAW_SHEET}'!E:E)",
+        "💸 เบิกใช้" + ("วันนี้" if cycle_title.startswith("Day_") else "สัปดาห์นี้"),
+        # แท็บรายวัน (Day_) จับคู่คอลัมน์ J วันทำงาน · แท็บสัปดาห์ (Cycle_) จับคู่คอลัมน์ I รอบบิล
+        f"=SUMIF('{WITHDRAW_SHEET}'!{'J:J' if cycle_title.startswith('Day_') else 'I:I'},\"{cycle_title}\",'{WITHDRAW_SHEET}'!E:E)",
         "💵 คงเหลือร้าน",
         "=R4-R6",
     ]
@@ -258,15 +271,15 @@ def withdraw_style_requests(sheet_id: int) -> list[dict]:
             "fields": "gridProperties.frozenRowCount",
         }},
         _row_height(sheet_id, 0, 36),
-        _cell(sheet_id, 0, 1, 0, 9, _header_fmt(PURPLE)),
+        _cell(sheet_id, 0, 1, 0, 10, _header_fmt(PURPLE)),
         _cell(sheet_id, 0, 1, 4, 5, _header_fmt("#C62828")),
         _cell(sheet_id, 1, None, 0, 1, {"horizontalAlignment": "CENTER", "textFormat": {"bold": True}}),
         _cell(sheet_id, 1, None, 3, 4, {"wrapStrategy": "WRAP"}),
         _cell(sheet_id, 1, None, 4, 5, {"numberFormat": {"type": "NUMBER", "pattern": MONEY},
                                          "backgroundColor": _rgb(PINK_LIGHT), "textFormat": {"bold": True}}),
-        {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 9)}}},
+        {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 10)}}},
     ]
-    widths = {0: 70, 1: 100, 2: 70, 3: 240, 4: 120, 5: 150, 7: 240, 8: 150}
+    widths = {0: 70, 1: 100, 2: 70, 3: 240, 4: 120, 5: 150, 7: 240, 8: 150, 9: 150}
     reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
     reqs.append(_hide(sheet_id, 6))
     return reqs
@@ -422,9 +435,17 @@ class SheetsClient:
         assert self._spreadsheet is not None
         ws.update(values=[HEADERS], range_name="A1")
         ws.update(values=summary_block(ws.title), range_name="Q1", value_input_option="USER_ENTERED")
-        self._spreadsheet.batch_update(
-            {"requests": self._clear_conditional_rules(ws.id) + cycle_style_requests(ws.id)}
-        )
+        requests = self._clear_conditional_rules(ws.id) + cycle_style_requests(ws.id)
+        if ws.title.startswith("Cycle_"):
+            ws.update(values=DAILY_BREAKDOWN, range_name="V1", value_input_option="USER_ENTERED")
+            requests += [
+                _cell(ws.id, 0, 1, 21, 25, _header_fmt(PURPLE_DARK)),
+                _cell(ws.id, 1, None, 21, 22, {"textFormat": {"bold": True}}),
+                _cell(ws.id, 1, None, 22, 25, {"numberFormat": {"type": "NUMBER", "pattern": MONEY}}),
+                _cell(ws.id, 1, None, 24, 25, {"backgroundColor": _rgb(BLUE_LIGHT), "textFormat": {"bold": True}}),
+                _width(ws.id, 21, 120), _width(ws.id, 22, 110), _width(ws.id, 23, 110), _width(ws.id, 24, 120),
+            ]
+        self._spreadsheet.batch_update({"requests": requests})
 
     def _init_attendance_ws(self, ws) -> None:
         assert self._spreadsheet is not None
@@ -471,7 +492,7 @@ class SheetsClient:
         self._spreadsheet.batch_update({"requests": requests})
         return len(lines)
 
-    async def delete_job_rows(self, job_id: int, prefer_title: str | None = None) -> int | None:
+    async def delete_job_rows(self, job_id: int, prefer_title: str | list[str] | None = None) -> int | None:
         """ลบแถวของบิลออกจากชีตรอบบิล — หาในชีตรอบที่ควรอยู่ก่อน ไม่เจอค่อยหาชีตรอบอื่น
         คืนจำนวนแถวที่ลบ (0 = ไม่พบ) หรือ None ถ้าลบไม่สำเร็จ/ยังไม่ได้เชื่อม Sheets"""
         if not self.ready:
@@ -483,16 +504,17 @@ class SheetsClient:
                 log.exception("ลบแถวบิล #%s ใน Google Sheets ไม่สำเร็จ", job_id)
                 return None
 
-    def _delete_job_rows_sync(self, key: str, prefer_title: str | None) -> int:
+    def _delete_job_rows_sync(self, key: str, prefer_title: str | list[str] | None) -> int:
+        """ลบจากแท็บสัปดาห์และแท็บรายวัน — หาในแท็บที่ควรอยู่ก่อน ไม่เจอค่อยไล่หาแท็บอื่น"""
         assert self._spreadsheet is not None
-        sheets = [ws for ws in self._spreadsheet.worksheets() if ws.title.startswith("Cycle_")]
-        sheets.sort(key=lambda ws: ws.title, reverse=True)  # รอบใหม่ก่อน
-        sheets.sort(key=lambda ws: ws.title != prefer_title)  # รอบที่ควรอยู่ขึ้นก่อนสุด
-        for ws in sheets:
-            removed = self._delete_rows_sync(ws, key, len(HEADERS))
-            if removed:
-                return removed
-        return 0
+        prefer = [prefer_title] if isinstance(prefer_title, str) else list(prefer_title or [])
+        sheets = [ws for ws in self._spreadsheet.worksheets() if ws.title.startswith(("Cycle_", "Day_"))]
+        removed = sum(self._delete_rows_sync(ws, key, len(HEADERS)) for ws in sheets if ws.title in prefer)
+        if removed:
+            return removed
+        for ws in sorted((w for w in sheets if w.title not in prefer), key=lambda w: w.title, reverse=True):
+            removed += self._delete_rows_sync(ws, key, len(HEADERS))
+        return removed
 
     # ---------------------------------------------------------- เบิกเงิน
     def _withdraw_ws(self):
@@ -525,13 +547,13 @@ class SheetsClient:
         assert self._spreadsheet is not None
         self._withdraw_ws().append_row(row, value_input_option="USER_ENTERED", table_range="A1")
         # ชีตรอบที่สร้างก่อนมีระบบเบิกเงินยังไม่มีแถวเบิก/คงเหลือ — เติมให้ (ไม่ต้องรอสั่ง /sheets_format)
-        title = str(row[-1])
-        try:
-            cycle_ws = self._spreadsheet.worksheet(title)
-        except gspread.WorksheetNotFound:
-            return
-        if not cycle_ws.acell("Q6").value:
-            cycle_ws.update(values=[summary_block(title)[5]], range_name="Q6", value_input_option="USER_ENTERED")
+        for title in (str(row[8]), str(row[9])):  # แท็บสัปดาห์ + แท็บรายวัน
+            try:
+                cycle_ws = self._spreadsheet.worksheet(title)
+            except gspread.WorksheetNotFound:
+                continue
+            if not cycle_ws.acell("Q6").value:
+                cycle_ws.update(values=[summary_block(title)[5]], range_name="Q6", value_input_option="USER_ENTERED")
 
     async def delete_withdraw_row(self, wid: int) -> int | None:
         if not self.ready:
@@ -589,12 +611,12 @@ class SheetsClient:
                 log.exception("สร้างชีตรอบใหม่ (%s) ไม่สำเร็จ", title)
                 return False
 
-    async def restyle(self, cycle_title: str) -> list[str]:
+    async def restyle(self, cycle_title: str, day_title: str | None = None) -> list[str]:
         """จัดรูปแบบชีตรอบปัจจุบัน + Attendance ใหม่ (หัวตาราง/สูตรสรุป/สี) — ข้อมูลเดิมไม่หาย"""
         if not self.ready:
             return []
         async with self._lock:
-            return await asyncio.to_thread(self._restyle_sync, cycle_title)
+            return await asyncio.to_thread(self._restyle_sync, cycle_title, day_title)
 
     # ---------------------------------------------------------- เหรียญ
     def _coin_ws(self):
@@ -662,15 +684,19 @@ class SheetsClient:
         else:
             ws.append_row(row, value_input_option="RAW", table_range="A1")
 
-    def _restyle_sync(self, cycle_title: str) -> list[str]:
+    def _restyle_sync(self, cycle_title: str, day_title: str | None = None) -> list[str]:
         done = []
         ws = self._withdraw_ws()
+        ws.update(values=[WITHDRAW_HEADERS], range_name="A1")
         self._spreadsheet.batch_update({"requests": withdraw_style_requests(ws.id)})
         done.append(WITHDRAW_SHEET)
         self._init_payout_ws(self._payout_ws())
         done.append(PAYOUT_SHEET)
         self._init_ws(self._get_or_create_ws(cycle_title))
         done.append(cycle_title)
+        if day_title:
+            self._init_ws(self._get_or_create_ws(day_title))
+            done.append(day_title)
         self._init_attendance_ws(self._attendance_ws())
         done.append(ATTENDANCE_SHEET)
         return done
