@@ -24,3 +24,18 @@ def next_cutoff_local(now_local: dt.datetime, cfg: Config) -> dt.datetime:
 def cycle_title(cfg: Config, now_local: dt.datetime | None = None) -> str:
     now_local = now_local or dt.datetime.now(cfg.tz)
     return f"Cycle_{cycle_start_local(now_local, cfg).date().isoformat()}"
+
+
+def shop_day_local(cfg: Config, now_local: dt.datetime | None = None) -> dt.date:
+    """วันทำงานของร้าน — ก่อนเวลาตัดยอดเข้างาน (attendance.day_cutoff_hour, ค่าเริ่มต้นตี 1) นับเป็นของเมื่อวาน"""
+    now_local = now_local or dt.datetime.now(cfg.tz)
+    hour = int(cfg.get("attendance.day_cutoff_hour", 1))
+    start = now_local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if start > now_local:
+        start -= dt.timedelta(days=1)
+    return start.date()
+
+
+def day_title(cfg: Config, now_local: dt.datetime | None = None) -> str:
+    """ชื่อแท็บรายวันใน Google Sheets (แท็บ Cycle_ = สรุปทั้งสัปดาห์)"""
+    return f"Day_{shop_day_local(cfg, now_local).isoformat()}"

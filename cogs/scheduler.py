@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from core.vip_logic import shop_day_start
 from core.cycle import cycle_start_local, cycle_title, next_cutoff_local
 from core.embeds import COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import job_staff_ids, job_staff_split
@@ -482,6 +483,24 @@ class SchedulerCog(commands.Cog):
         start = await self._period_start(cycle_start_local(now_local, self.cfg))
         embed = await self.build_summary(start, now_local)
         embed.title = "📊 สรุปยอดรอบปัจจุบัน"
+        # วันนี้ (นับตามวันทำงานของร้าน ตัดที่เวลาตัดยอดเข้างาน)
+        day_start = shop_day_start(self.cfg, now_local)
+        jobs = await self.db.jobs_paid_between(to_iso(day_start), to_iso(now_local))
+        vip = await self.db.vip_orders_paid_between(to_iso(day_start), to_iso(now_local))
+        wd = await self.db.withdrawals_between(to_iso(day_start), to_iso(now_local))
+        day_in = sum(j["total_price"] for j in jobs) + sum(o["total_price"] for o in vip)
+        day_shop = sum(j["shop_share"] for j in jobs) + sum(o["total_price"] for o in vip)
+        day_wd = sum(w["amount"] for w in wd)
+        embed.insert_field_at(
+            0,
+            name=f"📅 วันนี้ ({day_start:%d/%m} ตั้งแต่ {day_start:%H:%M})",
+            value=(
+                f"💰 ยอดบิล **{money(day_in)}** · 🧾 {len(jobs) + len(vip)} รายการ\n"
+                f"🏪 รายได้ร้าน **{money(day_shop)}**"
+                + (f" · 💸 เบิก {money(day_wd)} · 💵 คงเหลือ **{money(day_shop - day_wd)}**" if wd else "")
+            ),
+            inline=False,
+        )
         embed.color = COLOR_INFO
         return embed
 
