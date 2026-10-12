@@ -27,6 +27,7 @@ from core.utils import (
     is_admin,
     is_reception,
     money,
+    staff_members,
     now_utc,
     parse_start_time,
     purge_old_panels,
@@ -174,9 +175,13 @@ class BillDetailModal(discord.ui.Modal, title="รายละเอียดบ
     )
 
     def __init__(self, wizard: "OpenBillWizard") -> None:
-        super().__init__()
+        super().__init__(title="คีย์บิลย้อนหลัง" if wizard.backfill else "รายละเอียดบิล")
         self.wizard = wizard
         self.quantities: dict[str, discord.ui.TextInput] = {}
+        if wizard.backfill:
+            self.start_time.label = "เวลาเริ่มงานจริง (ย้อนหลัง)"
+            self.start_time.placeholder = "เช่น 21:30 หรือ 11/10 21:30"
+            self.start_time.default = None
         # บริการคิดต่อหน่วย (เช่น Drink Friend) ให้กรอกจำนวนเพิ่ม — Modal ใส่ช่องได้สูงสุด 5 ช่อง
         for key in wizard.unit_service_keys()[:3]:
             svc = wizard.cfg.service(key) or {}
@@ -211,9 +216,11 @@ class OpenBillWizard(discord.ui.View):
     """แผงเลือกข้อมูลเปิดบิลแบบขั้นตอนเดียว (ephemeral)"""
 
     def __init__(
-        self, cog: "ReceptionCog", opener: discord.Member, today: dict[int, dict] | None = None
+        self, cog: "ReceptionCog", opener: discord.Member, today: dict[int, dict] | None = None,
+        *, backfill: bool = False,
     ) -> None:
         super().__init__(timeout=600)
+        self.backfill = backfill  # คีย์บิลย้อนหลัง (บอทล้ม): เลือกพนักงานได้ทุกคน บันทึกเป็นจ่ายแล้วทันที
         self.cog = cog
         self.cfg = cog.cfg
         self.opener = opener
@@ -244,9 +251,12 @@ class OpenBillWizard(discord.ui.View):
 
         # เลือกได้เฉพาะพนักงานที่กดเข้างานอยู่ตอนนี้ (ยังไม่ออกงาน) — today ส่งมาจาก open_bill_panel
         guild = getattr(opener, "guild", None)
-        staff = [m for m in (guild.get_member(uid) for uid in self.today) if m is not None and not m.bot][:25] if guild else []
+        if backfill:  # ย้อนหลัง: พนักงานอาจออกงานไปแล้ว ให้เลือกได้ทุกคนที่มี Role พนักงาน
+            staff = staff_members(guild, self.cfg.staff_role_ids)[:25]
+        else:
+            staff = [m for m in (guild.get_member(uid) for uid in self.today) if m is not None and not m.bot][:25] if guild else []
         self.staff_select = discord.ui.Select(
-            placeholder=f"💃 เลือกพนักงานที่เข้างานอยู่{staff_hint}",
+            placeholder=f"💃 เลือกพนักงาน{'' if backfill else 'ที่เข้างานอยู่'}{staff_hint}",
             min_values=1,
             max_values=max(1, min(max_staff, len(staff))),
             row=1,
@@ -254,11 +264,11 @@ class OpenBillWizard(discord.ui.View):
                 discord.SelectOption(
                     label=m.display_name[:100],
                     value=str(m.id),
-                    emoji="🟢",
+                    emoji="🟢" if m.id in self.today else "⚪",
                     description=self._staff_hint(m.id),
                 )
                 for m in staff
-            ] or [discord.SelectOption(label="ยังไม่มีพนักงานเข้างาน", value="none")],
+            ] or [discord.SelectOption(label="ยังไม่มีพนักงาน", value="none")],
             disabled=not staff,
         )
         self.staff_select.callback = self._on_staff
@@ -520,8 +530,9 @@ class OpenBillWizard(discord.ui.View):
         ]
         progress = "　".join(f"{'✅' if done else '⬜'} {name}" for name, done in steps)
         embed = discord.Embed(
-            title="🧾 เปิดบิลใหม่",
-            description=f"{progress}\n┗ เลือกให้ครบ แล้วกด **กรอกเวลา & ยืนยันเปิดบิล**",
+            title="🕘 คีย์บิลย้อนหลัง" if self.backfill else "🧾 เปิดบิลใหม่",
+            description=f"{progress}\n┗ เลือกให้ครบ แล้วกด **กรอกเวลา & ยืนยันเปิดบิล**"
+            + ("\n⚠️ บิลจะบันทึกเป็น **ชำระแล้ว** ทันที ไม่ส่ง DM ลูกค้า/พนักงาน" if self.backfill else ""),
             color=COLOR_OK if all(done for _, done in steps) else COLOR_MAIN,
         )
         if len(self.customers) > 1:
@@ -622,10 +633,17 @@ class OpenBillWizard(discord.ui.View):
             return
 
         try:
-            start = parse_start_time(raw_time, self.cfg.tz)
+            start = parse_start_time(raw_time, self.cfg.tz, past=self.backfill)
         except TimeParseError as exc:
             await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
             return
+        if self.backfill:
+            if start > now_utc():
+                await interaction.response.send_message("⚠️ คีย์ย้อนหลังต้องเป็นเวลาที่ผ่านมาแล้วค่ะ", ephemeral=True)
+                return
+            if start < now_utc() - dt.timedelta(days=31):
+                await interaction.response.send_message("⚠️ คีย์ย้อนหลังได้ไม่เกิน 31 วันค่ะ", ephemeral=True)
+                return
 
         # บริการคิดต่อหน่วยเก็บเป็น key ซ้ำตามจำนวน (เช่น Drink Friend 3 shot = key 3 ตัว)
         service_keys = [key for key in self.service_keys for _ in range(quantities.get(key, 1))]
@@ -672,12 +690,16 @@ class OpenBillWizard(discord.ui.View):
             room_key=self.room_key if self._requires_room() else None,
             note=note.strip(),
             start=start,
+            backfill=self.backfill,
         )
         job = await self.cog.db.get_job(job_id)
 
         self.stop()
         await interaction.edit_original_response(
-            embed=job_embed(self.cfg, job, title="✅ เปิดบิลเรียบร้อย", color=COLOR_OK),
+            embed=job_embed(
+                self.cfg, job, title="🕘 คีย์บิลย้อนหลังเรียบร้อย (ชำระแล้ว)" if self.backfill else "✅ เปิดบิลเรียบร้อย",
+                color=COLOR_OK,
+            ),
             view=None,
         )
 
@@ -886,6 +908,23 @@ class ReceptionPanel(discord.ui.View):
         # มุมมองเดียวกับเมนูแอดมิน: รวมงานที่รับ และรายชื่อคนที่พนักงานไม่รับ (ใช้ตอนเลือกพนักงานเปิดบิล)
         attendance = interaction.client.get_cog("AttendanceCog")
         await interaction.response.send_message(embed=await attendance.today_embed(private=True), ephemeral=True)
+
+    @discord.ui.button(
+        label="คีย์บิลย้อนหลัง",
+        emoji="🕘",
+        style=discord.ButtonStyle.secondary,
+        custom_id="olp:panel:backfill",
+        row=2,
+    )
+    async def backfill(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cog: ReceptionCog = interaction.client.get_cog("ReceptionCog")  # type: ignore[assignment]
+        if not cog._reception_guard(interaction):
+            await interaction.response.send_message(NOT_RECEPTION, ephemeral=True)
+            return
+        attendance = interaction.client.get_cog("AttendanceCog")
+        today = await attendance.today_prefs() if attendance else {}
+        wizard = OpenBillWizard(cog, interaction.user, today, backfill=True)
+        await interaction.response.send_message(embed=await wizard.summary_embed(), view=wizard, ephemeral=True)
 
     @discord.ui.button(
         label="ดูบิล",
@@ -1129,8 +1168,10 @@ class ReceptionCog(commands.Cog):
         start: dt.datetime,
         job_type: str = "NORMAL",
         parent_job_id: int | None = None,
+        backfill: bool = False,
     ) -> int:
-        """staff_ids[0] = พนักงานหลัก (คนกดรับงาน) ที่เหลือ = พนักงานร่วม (Party Room)"""
+        """backfill = คีย์บิลย้อนหลัง: บันทึกเป็นจบแล้ว+ชำระแล้ว ณ เวลาเริ่มจริง ไม่ส่ง DM ไม่ต้องรอรับงาน
+        staff_ids[0] = พนักงานหลัก (คนกดรับงาน) ที่เหลือ = พนักงานร่วม (Party Room)"""
         now_local = dt.datetime.now(self.cfg.tz)
         tier = await active_tier(self.db, customer_id, now_local)
         staff_id, co_staff = staff_ids[0], list(staff_ids[1:])
@@ -1191,13 +1232,27 @@ class ReceptionCog(commands.Cog):
             shop_share=shop_share,
             voucher_id=voucher_id,
             coin_cost=discount,
-            status="PENDING_STAFF",
+            status="COMPLETED" if backfill else "PENDING_STAFF",
             opened_by=opener.id,
             created_at=to_iso(now_utc()),
+            **({"paid_at": to_iso(start), "accepted_by": [staff_id, *co_staff]} if backfill else {}),
         )
         await reserve_quota_for_job(self.db, customer_id, quote, cycle)
         if voucher_id:
             await self.db.execute("UPDATE coin_vouchers SET used_job_id = ? WHERE id = ?", (job_id, voucher_id))
+
+        if backfill:
+            job = await self.db.get_job(job_id)
+            coins_cog = self.bot.get_cog("CoinsCog")
+            if coins_cog is not None:
+                await coins_cog.on_job_paid(job)
+            payments = self.bot.get_cog("PaymentsCog")
+            await payments.log_job_to_sheet(job)  # ลงชีตรอบตามวันที่จริง (paid_at)
+            await payments.notify_admin_text(
+                f"🕘 {opener.mention} คีย์บิลย้อนหลัง `#{job_id}` · <@{customer_id}> · "
+                f"{self.cfg.service_names(service_keys)} · {money(total_price)} · เริ่ม {discord_ts(start)}"
+            )
+            return job_id
 
         job = await self.db.get_job(job_id)
         shares = {sid: share for sid, _, share in job_staff_split(self.cfg, job)}
@@ -1450,6 +1505,7 @@ class ReceptionCog(commands.Cog):
                     ("⏱️ ต่อเวลา / เพิ่มรอบ", "ต่อ Short Date หรือเพิ่มรอบห้อง (+Erotic ได้) ขยายเวลาจบของบิลเดิม"),
                     ("📋 งานที่กำลังดำเนินอยู่", "ดูงานที่ยังไม่จบเวลา"),
                     ("🔍 ดูบิล", "ใส่เลขที่บิลดูรายละเอียด · เว้นว่าง = บิลล่าสุด 10 ใบ"),
+                    ("🕘 คีย์บิลย้อนหลัง", "บอทล้ม/ลืมคีย์ · บันทึกเป็นจ่ายแล้วทันที ลงชีตตามวันที่จริง"),
                     ("🟢 มาทำงานวันนี้", "ใครเข้างาน รับงานแบบไหน และไม่รับใคร (เหมือนเมนูแอดมิน)"),
                 ]),
                 ("💳 การชำระเงิน", [
