@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import sys
@@ -92,14 +94,30 @@ class PandoraBot(commands.Bot):
             await self.load_extension(ext)
             log.info("โหลด extension: %s", ext)
 
-        if self.cfg.guild_id:
-            guild = discord.Object(id=self.cfg.guild_id)
+        await self.sync_commands()
+
+    async def sync_commands(self) -> None:
+        """ซิงก์ slash command เฉพาะตอนคำสั่งเปลี่ยน — รีสตาร์ตบ่อยจะไม่ยิง API ซ้ำทุกครั้ง (ลดโอกาสโดน rate limit)"""
+        guild = discord.Object(id=self.cfg.guild_id) if self.cfg.guild_id else None
+        if guild is not None:
             self.tree.copy_global_to(guild=guild)
+        payload = sorted(
+            (json.dumps(cmd.to_dict(self.tree), sort_keys=True, ensure_ascii=False)
+             for cmd in self.tree.get_commands(guild=guild)),
+        )
+        digest = hashlib.sha256(f"{self.cfg.guild_id}|{payload}".encode()).hexdigest()
+        if await self.db.get_meta("command_hash") == digest:
+            log.info("slash command ไม่เปลี่ยน ข้ามการซิงก์")
+            return
+        try:
             synced = await self.tree.sync(guild=guild)
-            log.info("ซิงก์ slash command %d รายการเข้ากับกิลด์ %s", len(synced), self.cfg.guild_id)
-        else:
-            synced = await self.tree.sync()
-            log.info("ซิงก์ slash command %d รายการแบบ global (อาจใช้เวลาถึง 1 ชม.)", len(synced))
+        except discord.HTTPException as exc:
+            # ซิงก์ไม่ได้ (เช่นโดน rate limit) ไม่ต้องให้บอทล่ม — คำสั่งเดิมยังใช้ได้ รอบหน้าค่อยซิงก์ใหม่
+            log.warning("ซิงก์ slash command ไม่สำเร็จ (%s) จะลองใหม่ตอนเปิดบอทครั้งหน้า", exc)
+            return
+        await self.db.set_meta("command_hash", digest)
+        where = f"กิลด์ {self.cfg.guild_id}" if guild else "แบบ global (อาจใช้เวลาถึง 1 ชม.)"
+        log.info("ซิงก์ slash command %d รายการ %s", len(synced), where)
 
     async def on_ready(self) -> None:
         log.info("เข้าสู่ระบบในชื่อ %s (id=%s)", self.user, self.user.id)
@@ -143,11 +161,26 @@ async def main() -> None:
         )
         sys.exit(1)
 
-    bot = PandoraBot(cfg, db_path)
-
+    # โดน Discord บล็อกชั่วคราว (429) ตอนเข้าสู่ระบบ: รอแล้วค่อยลองใหม่ในตัว
+    # ไม่ปล่อยให้โปรแกรมปิดแล้วโฮสต์เปิดใหม่ทันทีซ้ำๆ ซึ่งทำให้โดนบล็อกนานขึ้น
+    waits = [300, 600, 1200, 1800]  # วินาที
     try:
-        async with bot:
-            await bot.start(token)
+        for attempt in range(len(waits) + 1):
+            bot = PandoraBot(cfg, db_path)
+            try:
+                async with bot:
+                    await bot.start(token)
+                return
+            except discord.HTTPException as exc:
+                if exc.status != 429 or attempt == len(waits):
+                    raise
+                wait = waits[attempt]
+                log.error(
+                    "Discord บล็อกการเชื่อมต่อชั่วคราว (429 rate limit) — รอ %d นาทีแล้วลองใหม่ (ครั้งที่ %d)\n"
+                    "  อย่ากดรีสตาร์ตบอทระหว่างนี้ ยิ่งรีสตาร์ตยิ่งโดนบล็อกนาน",
+                    wait // 60, attempt + 1,
+                )
+                await asyncio.sleep(wait)
     finally:
         lock.release()
 
