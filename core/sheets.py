@@ -74,7 +74,15 @@ def summary_block(cycle_title: str) -> list[list[str]]:
         "💵 คงเหลือร้าน",
         "=R4-R6",
     ]
+    if cycle_title.startswith("Day_"):
+        # ยอดสะสมต่อเนื่องข้ามวัน: ยกมา (T2 = คงเหลือสะสมของวันก่อน บอทใส่สูตรให้) + คงเหลือวันนี้
+        block[1][2:] = [BALANCE_IN_LABEL, 0]
+        block[2][2:] = ["🏦 คงเหลือสะสม", "=T2+T6"]
     return block
+
+
+BALANCE_IN_LABEL = "🏦 ยอดยกมา"
+BALANCE_CELL = "T3"  # คงเหลือสะสมของแท็บรายวัน (วันถัดไปดึงค่านี้ไปเป็นยอดยกมา)
 
 
 SUMMARY_BLOCK = [
@@ -433,9 +441,20 @@ class SheetsClient:
 
     def _init_ws(self, ws) -> None:
         assert self._spreadsheet is not None
+        # ยอดตั้งต้นที่แอดมินพิมพ์ใน T2 ของแท็บรายวันแรก — อ่านเก็บไว้ก่อนเขียนบล็อกสรุปทับ
+        opening = ws.acell("T2", value_render_option="FORMULA").value if ws.title.startswith("Day_") else None
         ws.update(values=[HEADERS], range_name="A1")
         ws.update(values=summary_block(ws.title), range_name="Q1", value_input_option="USER_ENTERED")
         requests = self._clear_conditional_rules(ws.id) + cycle_style_requests(ws.id)
+        if ws.title.startswith("Day_"):
+            self._link_day_balance(ws, opening)
+            requests += [
+                _cell(ws.id, 1, 3, 18, 19, {"backgroundColor": _rgb(GREEN_LIGHT), "textFormat": {"bold": True}}),
+                _cell(ws.id, 1, 3, 19, 20, {"numberFormat": {"type": "NUMBER", "pattern": MONEY},
+                                             "textFormat": {"bold": True}, "horizontalAlignment": "LEFT"}),
+                _cell(ws.id, 2, 3, 19, 20, {"backgroundColor": _rgb(GREEN_LIGHT),
+                                             "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": _rgb(GREEN)}}),
+            ]
         if ws.title.startswith("Cycle_"):
             ws.update(values=DAILY_BREAKDOWN, range_name="V1", value_input_option="USER_ENTERED")
             requests += [
@@ -446,6 +465,24 @@ class SheetsClient:
                 _width(ws.id, 21, 120), _width(ws.id, 22, 110), _width(ws.id, 23, 110), _width(ws.id, 24, 120),
             ]
         self._spreadsheet.batch_update({"requests": requests})
+
+    def _link_day_balance(self, ws, opening=None) -> None:
+        """ต่อยอดคงเหลือสะสมข้ามวัน: T2 ของแท็บนี้ = คงเหลือสะสมของแท็บรายวันก่อนหน้า
+        และแท็บรายวันถัดไป (ถ้ามี เช่นตอนคีย์บิลย้อนหลังแทรกวันใหม่) ต้องมาดึงจากแท็บนี้แทน
+        แท็บรายวันแรกสุด: เก็บยอดที่แอดมินพิมพ์ไว้ใน T2 (ยอดเงินในบัญชีตั้งต้น) ไม่ทับ"""
+        assert self._spreadsheet is not None
+        days = sorted(w.title for w in self._spreadsheet.worksheets() if w.title.startswith("Day_"))
+        before = [t for t in days if t < ws.title]
+        after = [t for t in days if t > ws.title]
+        if before:
+            ws.update(values=[[f"='{before[-1]}'!{BALANCE_CELL}"]], range_name="T2", value_input_option="USER_ENTERED")
+        else:
+            keep = opening if opening not in (None, "") and not str(opening).startswith("='Day_") else 0
+            ws.update(values=[[keep]], range_name="T2", value_input_option="USER_ENTERED")
+        if after:
+            self._spreadsheet.worksheet(after[0]).update(
+                values=[[f"='{ws.title}'!{BALANCE_CELL}"]], range_name="T2", value_input_option="USER_ENTERED"
+            )
 
     def _init_attendance_ws(self, ws) -> None:
         assert self._spreadsheet is not None
