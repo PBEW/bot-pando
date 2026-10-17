@@ -742,7 +742,7 @@ class SheetsClient:
         done.append(PAYOUT_SHEET)
         self._init_ws(self._get_or_create_ws(cycle_title))
         done.append(cycle_title)
-        if day_title:
+        if day_title and day_title != cycle_title:  # โหมดรายวัน: แท็บรอบ = แท็บรายวัน ไม่ต้องทำซ้ำ
             self._init_ws(self._get_or_create_ws(day_title))
             done.append(day_title)
         self._init_attendance_ws(self._attendance_ws())

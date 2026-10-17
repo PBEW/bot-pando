@@ -8,7 +8,7 @@ import re
 import discord
 from discord.ext import commands
 
-from core.cycle import cycle_title, day_title
+from core.cycle import sheet_titles
 from core.pricing import job_staff_ids, job_staff_split, release_quota_for_job, staff_mentions
 from core.embeds import (
     COLOR_DANGER,
@@ -516,7 +516,7 @@ class PaymentsCog(commands.Cog):
             return "(บิลนี้ยังไม่ได้ลง Google Sheets)"
         paid = from_iso(job.get("paid_at"))
         prefer = (
-            [cycle_title(self.cfg, paid.astimezone(self.cfg.tz)), day_title(self.cfg, paid.astimezone(self.cfg.tz))]
+            sheet_titles(self.cfg, paid.astimezone(self.cfg.tz))
             if paid else None
         )
         removed = await self.bot.sheets.delete_job_rows(job_id, prefer)
@@ -608,7 +608,7 @@ class PaymentsCog(commands.Cog):
         # ลงแท็บของรอบที่ชำระเงินจริง (บิลที่เติมย้อนหลังจะไม่ไปปนรอบปัจจุบัน)
         paid_local = (from_iso(job.get("paid_at")) or now_utc()).astimezone(tz)
         # ลงทั้งแท็บสัปดาห์ (Cycle_ สรุปยอดโอน) และแท็บรายวัน (Day_ วันนี้ได้เท่าไหร่)
-        writes = [(title, row) for title in (cycle_title(self.cfg, paid_local), day_title(self.cfg, paid_local)) for row in rows]
+        writes = [(title, row) for title in sheet_titles(self.cfg, paid_local) for row in rows]
         # จำว่าลงไปแล้วกี่แถว — ถ้าล้มกลางทาง รอบหน้าลงต่อจากแถวที่ค้าง ไม่ลงซ้ำแถวที่สำเร็จแล้ว
         progress_key = f"sheet_rows:{job['id']}"
         done = int(await self.db.get_meta(progress_key) or 0)
@@ -653,7 +653,7 @@ class PaymentsCog(commands.Cog):
             note,
         ]
         progress = int(await self.db.get_meta(f"{key}:part") or 0)
-        for index, title in enumerate((cycle_title(self.cfg, paid.astimezone(tz)), day_title(self.cfg, paid.astimezone(tz)))):
+        for index, title in enumerate(sheet_titles(self.cfg, paid.astimezone(tz))):
             if index < progress:
                 continue
             if not await self.bot.sheets.append_job_row(title, row):

@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.vip_logic import shop_day_start
-from core.cycle import cycle_start_local, cycle_title, next_cutoff_local
+from core.cycle import cycle_length, cycle_start_local, cycle_title, is_daily, next_cutoff_local
 from core.embeds import split_embed, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import job_staff_ids, job_staff_split
 from core.utils import (
@@ -225,7 +225,7 @@ class SchedulerCog(commands.Cog):
             period_start = await self._period_start(current_start)
             period_end = now_local
         else:
-            period_start = await self._period_start(current_start - dt.timedelta(days=7))
+            period_start = await self._period_start(current_start - cycle_length(self.cfg))
             period_end = current_start
         # กันช่วงเวลากลับหัว (เช่น กดตัดรอบทันทีแล้วตามด้วยตัดรอบอัตโนมัติในรอบเดียวกัน)
         period_start = min(period_start, period_end)
@@ -491,6 +491,9 @@ class SchedulerCog(commands.Cog):
         start = await self._period_start(cycle_start_local(now_local, self.cfg))
         embed = await self.build_summary(start, now_local)
         embed.title = "📊 สรุปยอดรอบปัจจุบัน"
+        if is_daily(self.cfg):
+            embed.title = "📊 สรุปยอดวันนี้ (รอบจ่ายพนักงานรายวัน)"
+            return embed
         # วันนี้ (นับตามวันทำงานของร้าน ตัดที่เวลาตัดยอดเข้างาน)
         day_start = shop_day_start(self.cfg, now_local)
         jobs = await self.db.jobs_paid_between(to_iso(day_start), to_iso(now_local))
