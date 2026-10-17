@@ -259,10 +259,20 @@ class PaymentsCog(commands.Cog):
             )
             return
 
+        # เปลี่ยนเป็นรอตรวจแบบมีเงื่อนไข — ถ้าแอดมินเพิ่งยืนยัน/ยกเลิกไปแล้ว จะไม่ดึงสถานะกลับ
+        if kind == "JOB":
+            moved = await self.db.claim_job(ref_id, ["ACCEPTED", "SLIP_PENDING"], status="SLIP_PENDING")
+        else:
+            moved = await self.db.execute_count(
+                "UPDATE vip_orders SET status = 'SLIP_PENDING' WHERE id = ? AND status IN ('AWAITING_PAYMENT', 'SLIP_PENDING')",
+                (ref_id,),
+            )
+        if not moved:
+            await interaction.response.send_message("รายการนี้ไม่อยู่ในสถานะรอชำระเงินแล้วค่ะ", ephemeral=True)
+            return
         await interaction.response.defer()
 
         if kind == "JOB":
-            await self.db.update_job(ref_id, status="SLIP_PENDING")
             title = f"🔎 สลิปรอตรวจสอบ · บิล #{ref_id}"
             desc = rows_text([
                 ("👤", "ลูกค้า", f"<@{record['customer_id']}>"),
@@ -271,7 +281,6 @@ class PaymentsCog(commands.Cog):
                 ("💰", "ยอด", f"**{money(record['total_price'])}**"),
             ])
         else:
-            await self.db.update_vip_order(ref_id, status="SLIP_PENDING")
             package = self.cfg.vip_package(record["package_key"])
             title = f"🔎 สลิปรอตรวจสอบ · VIP #{ref_id}"
             desc = rows_text([
@@ -310,7 +319,10 @@ class PaymentsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer()
         if kind == "JOB":
-            ok, msg = await self.cancel_job(ref_id, interaction.user, reason or None)
+            # ปฏิเสธสลิป = ยกเลิกได้เฉพาะบิลที่ยังไม่จ่าย (กันแอดมินอีกคนเพิ่งยืนยันสลิปอีกใบของบิลเดียวกัน)
+            ok, msg = await self.cancel_job(
+                ref_id, interaction.user, reason or None, from_statuses=["ACCEPTED", "SLIP_PENDING"]
+            )
         else:
             order = await self.db.get_vip_order(ref_id)
             if order is None:
@@ -452,16 +464,20 @@ class PaymentsCog(commands.Cog):
         return removed
 
     async def cancel_job(
-        self, job_id: int, admin: discord.abc.User, reason: str | None = None
+        self, job_id: int, admin: discord.abc.User, reason: str | None = None,
+        *, from_statuses: list[str] | None = None,
     ) -> tuple[bool, str]:
         job = await self.db.get_job(job_id)
         if job is None:
             return False, "ไม่พบบิลนี้ในระบบ"
         if job["status"] == "CANCELLED":
             return False, "บิลนี้ถูกยกเลิกไปแล้ว"
+        allowed = from_statuses or ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID", "COMPLETED"]
+        if job["status"] not in allowed:
+            return False, f"บิลนี้สถานะ **{job['status']}** แล้ว ยกเลิกจากตรงนี้ไม่ได้ (ถ้าต้องการยกเลิกจริงใช้ ❌ ยกเลิกบิล)"
 
-        if not await self.cancel_core(job, ["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID", "COMPLETED"]):
-            return False, "บิลนี้ถูกยกเลิกไปแล้ว"
+        if not await self.cancel_core(job, allowed):
+            return False, "บิลนี้ถูกดำเนินการไปแล้ว"
 
         note = dm_embed(
             "❌ บิลถูกยกเลิก",
@@ -703,7 +719,8 @@ class PaymentsCog(commands.Cog):
                         "— ทักพนักงาน หรือยกเลิกแล้วเปิดบิลใหม่ด้วย `/bill cancel`"
                     )
 
-            elif job["status"] == "ACCEPTED" and not job.get("slip_url"):
+            # ACCEPTED = ยังไม่ได้ส่งสลิปให้แอดมิน (รวมกรณีอัปรูปแล้วแต่ไม่กดยืนยัน — เดิมบิลแบบนี้ค้างตลอดไป)
+            elif job["status"] == "ACCEPTED":
                 accepted = from_iso(job["accepted_at"] or job["created_at"])
                 deadline = max(accepted + pay_cancel, from_iso(job["start_time"]))
                 if now >= deadline:
@@ -726,7 +743,10 @@ class PaymentsCog(commands.Cog):
                                 ("💰", "ยอด", f"**{money(job['total_price'])}**"),
                                 ("⏳", "เหลือเวลา", f"**{max(left, 1)} นาที**"),
                             ],
-                            note="ส่งภาพสลิปใน DM นี้ได้เลยค่ะ เลยเวลาแล้วระบบจะยกเลิกบิลให้อัตโนมัติ",
+                            note=(
+                                "ส่งภาพสลิปใน DM นี้ แล้วกด **ยืนยันส่งสลิป** ได้เลยค่ะ "
+                                "เลยเวลาแล้วระบบจะยกเลิกบิลให้อัตโนมัติ"
+                            ),
                             color=COLOR_GOLD,
                         ),
                     )

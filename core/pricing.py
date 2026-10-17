@@ -258,20 +258,30 @@ def split_revenue(
       (เช่น ค่าห้อง 70%, Drink Friend 100%) ที่เหลือใช้ % ของพนักงานแต่ละคนตาม revenue_share
     - บิลที่มีพนักงานหลายคน (Party Room) แบ่งยอดเท่ากันทุกคน แล้วคิดเปอร์เซ็นต์ของแต่ละคน
     """
+    per_staff = split_revenue_by_staff(cfg, staff_ids, total_price, amounts)
+    staff_share = round(sum(per_staff.values()), 2)
+    shop_share = round(total_price - staff_share, 2)
+    return staff_share, shop_share
+
+
+def split_revenue_by_staff(
+    cfg: Config,
+    staff_ids: int | list[int],
+    total_price: float,
+    amounts: dict[str, float] | None = None,
+) -> dict[int, float]:
+    """ส่วนแบ่งรายคน (ใช้กฎเดียวกับ split_revenue) — บันทึกลงบิลตอนสร้าง ให้ยอดโอนรายคนตรงกับยอดรวมเสมอ"""
     ids = [staff_ids] if isinstance(staff_ids, int) else list(staff_ids)
     n = max(len(ids), 1)
     if not amounts:
         amounts = {"": total_price}
-
-    staff_share = 0.0
+    shares: dict[int, float] = {sid: 0.0 for sid in ids}
     for key, amount in amounts.items():
         fixed = _fixed_percent(cfg, key)
         for sid in ids:
             percent = float(fixed) if fixed is not None else cfg.staff_percent(sid)
-            staff_share += amount / n * percent / 100.0
-    staff_share = round(staff_share, 2)
-    shop_share = round(total_price - staff_share, 2)
-    return staff_share, shop_share
+            shares[sid] += amount / n * percent / 100.0
+    return {sid: round(v, 2) for sid, v in shares.items()}
 
 
 SHOP_ID = 0  # staff_id = 0 คือโดเนทให้ร้าน (ไม่มีพนักงานรับส่วนแบ่ง)
@@ -298,11 +308,17 @@ def job_staff_split(cfg: Config, job: dict) -> list[tuple[int, float, float]]:
     if not ids:  # โดเนทให้ร้าน
         return []
     portion = job["total_price"] / len(ids)
-    # โดเนท (เช่น ทุกคนในร้าน) หารเท่ากันทุกคน · บิลบริการแบ่งตาม % ของแต่ละคน
+    saved = job.get("staff_shares") or {}
+    if saved and set(saved) == set(ids):
+        # ส่วนแบ่งรายคนที่คำนวณตอนเปิดบิล (กฎเดียวกับยอดรวม) — ผลรวมเท่ากับ staff_share เสมอ
+        return [(sid, round(portion, 2), round(float(saved[sid]), 2)) for sid in ids]
+    # บิลเก่าที่ยังไม่มีข้อมูลรายคน: โดเนทหารเท่ากัน · บิลบริการแบ่งตาม % ของแต่ละคน (รวม 0 = หารเท่ากัน)
     weights = [1.0] * len(ids) if job.get("job_type") == "DONATE" else [cfg.staff_percent(sid) for sid in ids]
-    weight_sum = sum(weights) or len(ids)
+    if sum(weights) <= 0:
+        weights = [1.0] * len(ids)
+    weight_sum = sum(weights)
     return [
-        (sid, round(portion, 2), round(job["staff_share"] * (w or 1) / weight_sum, 2))
+        (sid, round(portion, 2), round(job["staff_share"] * w / weight_sum, 2))
         for sid, w in zip(ids, weights)
     ]
 

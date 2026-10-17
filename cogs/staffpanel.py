@@ -157,7 +157,7 @@ class StaffPanelCog(commands.Cog):
         start = await period_start(self.bot, now_local)
         me = interaction.user.id
         mine: list[tuple[dict, float, float]] = []  # (บิล, ยอดส่วนของฉัน, ส่วนแบ่งของฉัน)
-        for j in await self.db.jobs_paid_between(to_iso(start), to_iso(now_local)):
+        for j in await self.db.jobs_for_period(to_iso(start), to_iso(now_local)):
             for staff_id, part, part_share in job_staff_split(self.cfg, j):
                 if staff_id == me:
                     mine.append((j, part, part_share))

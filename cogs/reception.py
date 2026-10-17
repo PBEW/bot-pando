@@ -17,6 +17,7 @@ from core.pricing import (
     quote_services,
     reserve_quota_for_job,
     split_revenue,
+    split_revenue_by_staff,
     max_customers,
     validate_selection,
 )
@@ -1216,6 +1217,7 @@ class ReceptionCog(commands.Cog):
             customer_ids=[customer_id, *(co_customers or [])],
         )
         staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
+        per_staff = split_revenue_by_staff(self.cfg, staff_ids, quote.total_price, quote.amounts)
 
         # คูปองเหรียญ Pandora: ลดยอดที่ลูกค้าจ่าย แต่พนักงานยังได้ส่วนแบ่งเต็ม (ร้านออกส่วนลดเอง)
         discount = 0.0
@@ -1258,6 +1260,7 @@ class ReceptionCog(commands.Cog):
             quota_cycle=cycle if quote.quota_services else None,
             total_price=total_price,
             staff_share=staff_share,
+            staff_shares=per_staff,
             shop_share=shop_share,
             voucher_id=voucher_id,
             coin_cost=discount,
@@ -1277,9 +1280,14 @@ class ReceptionCog(commands.Cog):
                 await coins_cog.on_job_paid(job)
             payments = self.bot.get_cog("PaymentsCog")
             await payments.log_job_to_sheet(job)  # ลงชีตรอบตามวันที่จริง (paid_at)
+            last_cut = from_iso(await self.db.get_meta("last_cut_at"))
+            late = (
+                "\n⚠️ วันที่ของบิลอยู่ในรอบที่**ตัดยอดไปแล้ว** — ยอดนี้จะนับเข้าสรุปรอบปัจจุบัน (จ่ายพนักงานรอบนี้) แทน"
+                if last_cut and start < last_cut else ""
+            )
             await payments.notify_admin_text(
                 f"🕘 {opener.mention} คีย์บิลย้อนหลัง `#{job_id}` · <@{customer_id}> · "
-                f"{self.cfg.service_names(service_keys)} · {money(total_price)} · เริ่ม {discord_ts(start)}"
+                f"{self.cfg.service_names(service_keys)} · {money(total_price)} · เริ่ม {discord_ts(start)}{late}"
             )
             return job_id
 
@@ -1334,6 +1342,7 @@ class ReceptionCog(commands.Cog):
         )
         staff_ids = job_staff_ids(parent)
         staff_share, shop_share = split_revenue(self.cfg, staff_ids, quote.total_price, quote.amounts)
+        per_staff = split_revenue_by_staff(self.cfg, staff_ids, quote.total_price, quote.amounts)
         cycle = cycle_month_key(now_local)
 
         old_end = from_iso(parent["end_time"])
@@ -1358,6 +1367,7 @@ class ReceptionCog(commands.Cog):
             quota_cycle=cycle if quote.quota_services else None,
             total_price=quote.total_price,
             staff_share=staff_share,
+            staff_shares=per_staff,
             shop_share=shop_share,
             status="ACCEPTED",
             opened_by=opener.id,

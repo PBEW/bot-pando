@@ -506,7 +506,7 @@ class VipCog(commands.Cog):
             if old_role and old_role in member.roles:
                 try:
                     await member.remove_roles(old_role, reason="เปลี่ยนระดับ VIP")
-                except discord.Forbidden:
+                except discord.HTTPException:  # Forbidden + error อื่นของ Discord (ไม่ให้คนหนึ่งค้างทั้งคิว)
                     pass
 
         new_role = guild.get_role(int(new_tier_cfg.get("role_id") or 0))
@@ -514,7 +514,7 @@ class VipCog(commands.Cog):
             return note + "\n⚠️ ไม่พบ Role ของระดับนี้ (ตรวจสอบ role_id ใน config)"
         try:
             await member.add_roles(new_role, reason="ยืนยัน VIP")
-        except discord.Forbidden:
+        except discord.HTTPException:  # Forbidden + error อื่นของ Discord (ไม่ให้คนหนึ่งค้างทั้งคิว)
             note += "\n⚠️ บอทไม่มีสิทธิ์ให้ Role (ตรวจสอบลำดับ Role ของบอท)"
         return note
 
@@ -632,7 +632,7 @@ class VipCog(commands.Cog):
             if member and role and role in member.roles:
                 try:
                     await member.remove_roles(role, reason="VIP หมดอายุ")
-                except discord.Forbidden:
+                except discord.HTTPException:  # Forbidden + error อื่นของ Discord (ไม่ให้คนหนึ่งค้างทั้งคิว)
                     log.warning("ถอด Role VIP ของ %s ไม่สำเร็จ", record["user_id"])
 
         # เคลียร์ expires_at เพื่อไม่ให้ loop ตรวจซ้ำ แต่เก็บ tier ไว้อ้างอิงประวัติ และรีเซ็ตเดือนสะสม
