@@ -93,7 +93,7 @@ class AdminCog(commands.Cog):
             await interaction.response.send_message("ยังไม่ได้เชื่อมต่อ Google Sheets ค่ะ (ดู `/health`)", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        title = await self.db.get_meta("current_cycle") or cycle_title(self.cfg)
+        title = cycle_title(self.cfg)  # คำนวณจากโหมดปัจจุบัน (meta อาจเป็นชื่อแท็บสัปดาห์เก่าจากก่อนเปลี่ยนเป็นรายวัน)
         try:
             done = await self.bot.sheets.restyle(title, day_title(self.cfg))
         except Exception as exc:  # noqa: BLE001 - แจ้งแอดมินแทนการเงียบ

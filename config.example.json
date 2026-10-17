@@ -333,6 +333,7 @@
     "embed_color": "#B026FF"
   },
   "cutoff": {
+    "daily": true,
     "weekday": 5,
     "hour": 8,
     "minute": 0

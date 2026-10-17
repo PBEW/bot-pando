@@ -1271,11 +1271,7 @@ class BotSetupView(AdminView):
             name="🏪 ร้าน & ระบบ",
             value=rows_text([
                 ("🏷️", "ชื่อร้าน", cfg.shop_name),
-                (
-                    "✂️",
-                    "ตัดรอบ",
-                    f"ทุกวัน{WEEKDAYS[cfg.cutoff_weekday % 7]} {cfg.cutoff_hour:02d}:{cfg.cutoff_minute:02d}",
-                ),
+                ("✂️", "ตัดรอบจ่ายพนักงาน", _cutoff_text(cfg)),
                 ("📊", "Google Sheets", ("🟢 เปิด" if sheets else "⚪ ปิด") + (" · เชื่อมต่อแล้ว" if self.sheets_ready else "")),
                 *[(n.split(" ", 1)[0], n.split(" ", 1)[1], "🟢 เปิด" if cfg.get(p, d) else "⚪ ปิด") for p, n, d in BOT_FEATURES],
             ]),
@@ -1499,20 +1495,44 @@ class NumberFieldsModal(discord.ui.Modal):
         await interaction.response.edit_message(embed=view.embed(), view=view)
 
 
-class CutoffModal(discord.ui.Modal, title="✂️ วันเวลาตัดรอบบัญชี"):
+def _cutoff_text(cfg) -> str:
+    from core.cycle import is_daily
+
+    if is_daily(cfg):
+        return f"ทุกวัน {int(cfg.get('attendance.day_cutoff_hour', 1)):02d}:00 (จ่ายรายวัน · แท็บ Day_)"
+    return f"ทุกวัน{WEEKDAYS[cfg.cutoff_weekday % 7]} {cfg.cutoff_hour:02d}:{cfg.cutoff_minute:02d} (จ่ายรายสัปดาห์)"
+
+
+class CutoffModal(discord.ui.Modal, title="✂️ รอบจ่ายพนักงาน"):
     def __init__(self, cfg) -> None:
         super().__init__()
+        from core.cycle import is_daily
+
+        self.mode = discord.ui.TextInput(
+            label="จ่ายพนักงาน (วัน / สัปดาห์)", default="วัน" if is_daily(cfg) else "สัปดาห์", max_length=8
+        )
         self.weekday = discord.ui.TextInput(
-            label="วัน (1=จันทร์ … 6=เสาร์, 7=อาทิตย์)", default=str(cfg.cutoff_weekday % 7 + 1), max_length=1
+            label="ถ้ารายสัปดาห์: วัน (1=จันทร์ … 7=อาทิตย์)", default=str(cfg.cutoff_weekday % 7 + 1), max_length=1
         )
         self.time = discord.ui.TextInput(
-            label="เวลา (HH:MM)", default=f"{cfg.cutoff_hour:02d}:{cfg.cutoff_minute:02d}", max_length=5
+            label="เวลาตัดรอบ (HH:MM) · รายวันใช้แค่ชั่วโมง",
+            default=(
+                f"{int(cfg.get('attendance.day_cutoff_hour', 1)):02d}:00" if is_daily(cfg)
+                else f"{cfg.cutoff_hour:02d}:{cfg.cutoff_minute:02d}"
+            ),
+            max_length=5,
         )
+        self.add_item(self.mode)
         self.add_item(self.weekday)
         self.add_item(self.time)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         cfg = interaction.client.cfg
+        mode = self.mode.value.strip().lower()
+        if mode not in ("วัน", "รายวัน", "day", "daily", "สัปดาห์", "รายสัปดาห์", "week", "weekly"):
+            await interaction.response.send_message("⚠️ ช่องจ่ายพนักงาน ให้ตอบ **วัน** หรือ **สัปดาห์** ค่ะ", ephemeral=True)
+            return
+        daily = mode in ("วัน", "รายวัน", "day", "daily")
         try:
             weekday = int(_num(self.weekday.value, lo=1, hi=7, name="วัน")) - 1
             hour_text, _, minute_text = self.time.value.strip().replace(".", ":").partition(":")
@@ -1521,14 +1541,21 @@ class CutoffModal(discord.ui.Modal, title="✂️ วันเวลาตัด
         except ValueError as exc:
             await interaction.response.send_message(f"⚠️ {exc}", ephemeral=True)
             return
-        cfg.data["cutoff"] = {**(cfg.get("cutoff") or {}), "weekday": weekday, "hour": hour, "minute": minute}
+        if daily:
+            # รายวัน: รอบ = วันทำงานของร้าน ตัดที่ชั่วโมงเดียวกับตัดยอดเข้างาน (แท็บ Day_ / ปิดกะ / จ่ายพนักงาน ตรงกัน)
+            cfg.data.setdefault("attendance", {})["day_cutoff_hour"] = hour
+            cfg.data["cutoff"] = {**(cfg.get("cutoff") or {}), "daily": True}
+        else:
+            cfg.data["cutoff"] = {
+                **(cfg.get("cutoff") or {}), "daily": False, "weekday": weekday, "hour": hour, "minute": minute,
+            }
         _save(interaction)
         # นับรอบปัจจุบันตามเวลาใหม่ทันที — กันบอทส่งสรุปรอบทันทีเพราะวันเริ่มรอบเปลี่ยน
         from core.cycle import cycle_start_local
 
         now_local = dt.datetime.now(cfg.tz)
         await interaction.client.db.set_meta("last_cutoff", cycle_start_local(now_local, cfg).date().isoformat())
-        text = f"ทุกวัน{WEEKDAYS[weekday]} {hour:02d}:{minute:02d}"
+        text = _cutoff_text(cfg)
         await log_change(interaction.client, interaction.user, f"ตั้งเวลาตัดรอบ: {text}")
         view = BotSetupView(cfg, sheets_ready=interaction.client.sheets.ready)
         await interaction.response.edit_message(embed=view.embed(), view=view)
