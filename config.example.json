@@ -270,14 +270,28 @@
   "rooms": [
     {
       "key": "karaoke_1",
-      "name": "Karaoke Room",
+      "name": "Karaoke Room 1",
+      "services": [
+        "karaoke"
+      ]
+    },
+    {
+      "key": "karaoke_2",
+      "name": "Karaoke Room 2",
       "services": [
         "karaoke"
       ]
     },
     {
       "key": "bedroom_1",
-      "name": "Bed Room",
+      "name": "Bed Room 1",
+      "services": [
+        "bedroom"
+      ]
+    },
+    {
+      "key": "bedroom_2",
+      "name": "Bed Room 2",
       "services": [
         "bedroom"
       ]

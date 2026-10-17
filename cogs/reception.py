@@ -1017,12 +1017,41 @@ class BillActionModal(discord.ui.Modal):
             await payments.notify_admin_text(f"🧾 {interaction.user.mention} (แผงรีเซปชั่น): {msg}")
 
 
+# ห้องที่มี 2 ห้อง (ห้อง 1 / ห้อง 2) — เติมให้ config เดิมที่ยังมีห้องเดียวตามค่าเริ่มต้น
+NUMBERED_ROOMS = [("bedroom", "bedroom", "Bed Room"), ("karaoke", "karaoke", "Karaoke Room")]
+
+
+def ensure_numbered_rooms(cfg) -> bool:
+    """Bed Room / Karaoke Room: ถ้ายังมีห้องเดียวชื่อค่าเริ่มต้น เปลี่ยนเป็น "ห้อง 1" และเพิ่ม "ห้อง 2"
+    ถ้าแอดมินตั้งห้องเองไว้แล้ว (ชื่ออื่น หรือมีหลายห้อง) จะไม่แตะ — คืน True ถ้ามีการแก้"""
+    rooms = cfg.data.setdefault("rooms", [])
+    changed = False
+    for service, prefix, name in NUMBERED_ROOMS:
+        if cfg.service(service) is None:
+            continue
+        using = [r for r in rooms if service in (r.get("services") or [])]
+        if len(using) != 1 or using[0].get("name") != name:
+            continue
+        using[0]["name"] = f"{name} 1"
+        keys = {r["key"] for r in rooms}
+        key = f"{prefix}_2" if f"{prefix}_2" not in keys else f"{prefix}_2_{len(keys)}"
+        rooms.insert(rooms.index(using[0]) + 1, {"key": key, "name": f"{name} 2", "services": [service]})
+        changed = True
+    if changed:
+        cfg.save()
+    return changed
+
+
 # --------------------------------------------------------------------- cog
 class ReceptionCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.cfg = bot.cfg
         self.db = bot.db
+
+    async def cog_load(self) -> None:
+        if ensure_numbered_rooms(self.cfg):
+            log.info("เพิ่มห้อง 2 ให้ Bed Room / Karaoke Room แล้ว")
 
     # ------------------------------------------------------------- panels
     async def open_bill_panel(self, interaction: discord.Interaction) -> None:
