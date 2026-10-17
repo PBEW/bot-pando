@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     co_staff          TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานร่วม (บิลหลายพนักงาน)
     co_customers      TEXT    NOT NULL DEFAULT '[]',       -- JSON list ลูกค้าที่มาด้วย (customer_id = คนจ่าย)
     accepted_by       TEXT    NOT NULL DEFAULT '[]',       -- JSON list พนักงานที่กดรับงานแล้ว (ทุกคนต้องรับ)
+    staff_shares      TEXT    NOT NULL DEFAULT '{}',       -- JSON {staff_id: ส่วนแบ่ง} ตอนเปิดบิล
     voucher_id        INTEGER,                             -- คูปองเหรียญ Pandora ที่ใช้กับบิลนี้
     coin_cost         REAL    NOT NULL DEFAULT 0,          -- ส่วนลดจากคูปอง (ร้านออกเงินส่วนนี้ พนักงานได้เต็ม)
     services          TEXT    NOT NULL,                    -- JSON list ของ service key
@@ -264,6 +265,8 @@ class Database:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN coin_cost REAL NOT NULL DEFAULT 0")
         if "accepted_by" not in columns:
             await self.conn.execute("ALTER TABLE jobs ADD COLUMN accepted_by TEXT NOT NULL DEFAULT '[]'")
+        if "staff_shares" not in columns:  # {staff_id: ส่วนแบ่ง} ตอนเปิดบิล
+            await self.conn.execute("ALTER TABLE jobs ADD COLUMN staff_shares TEXT NOT NULL DEFAULT '{}'")
         async with self.conn.execute("PRAGMA table_info(attendance)") as cur:
             columns = {row[1] for row in await cur.fetchall()}
         if "prefs" not in columns:
@@ -337,6 +340,7 @@ class Database:
         fields["co_staff"] = json.dumps(fields.get("co_staff", []))
         fields["co_customers"] = json.dumps(fields.get("co_customers", []))
         fields["accepted_by"] = json.dumps(fields.get("accepted_by", []))
+        fields["staff_shares"] = json.dumps({str(k): v for k, v in (fields.get("staff_shares") or {}).items()})
         cols = ", ".join(fields)
         holders = ", ".join("?" for _ in fields)
         return await self.execute(f"INSERT INTO jobs ({cols}) VALUES ({holders})", tuple(fields.values()))
@@ -348,6 +352,7 @@ class Database:
         job["co_staff"] = json.loads(job.get("co_staff") or "[]")
         job["co_customers"] = json.loads(job.get("co_customers") or "[]")
         job["accepted_by"] = json.loads(job.get("accepted_by") or "[]")
+        job["staff_shares"] = {int(k): float(v) for k, v in json.loads(job.get("staff_shares") or "{}").items()}
         return job
 
     async def get_job(self, job_id: int) -> dict | None:
@@ -378,6 +383,17 @@ class Database:
 
     async def active_jobs(self) -> list[dict]:
         return await self.jobs_by_status(["PENDING_STAFF", "ACCEPTED", "SLIP_PENDING", "PAID"])
+
+    async def jobs_for_period(self, start_iso: str, end_iso: str) -> list[dict]:
+        """บิลที่นับเข้ารอบจ่ายพนักงานนี้ = ชำระในช่วงนี้ + บิลที่คีย์ย้อนหลังในช่วงนี้แต่วันที่จริงอยู่ก่อนรอบ
+        (บิลย้อนหลังข้ามจุดตัดยอดไปแล้ว ไม่มีสรุปรอบไหนนับ — ให้มานับรอบที่คีย์แทน)"""
+        rows = await self.fetchall(
+            "SELECT * FROM jobs WHERE status IN ('PAID','COMPLETED') AND ("
+            "(paid_at >= ? AND paid_at < ?) OR (paid_at < ? AND created_at >= ? AND created_at < ?)"
+            ") ORDER BY paid_at",
+            (start_iso, end_iso, start_iso, start_iso, end_iso),
+        )
+        return [self._decode_job(row) for row in rows]
 
     async def jobs_paid_between(self, start_iso: str, end_iso: str) -> list[dict]:
         rows = await self.fetchall(

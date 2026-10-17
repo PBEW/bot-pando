@@ -60,7 +60,7 @@ async def withdraw_embed(bot) -> discord.Embed:
     start = await _period_start(bot)
     now_local = dt.datetime.now(cfg.tz)
     rows = await bot.db.withdrawals_between(to_iso(start), to_iso(now_local))
-    jobs = await bot.db.jobs_paid_between(to_iso(start), to_iso(now_local))
+    jobs = await bot.db.jobs_for_period(to_iso(start), to_iso(now_local))
     shop = sum(j["shop_share"] for j in jobs)
     total = sum(r["amount"] for r in rows)
     embed = discord.Embed(
@@ -342,7 +342,13 @@ class CutoffConfirmView(AdminOnlyView):
         await interaction.response.edit_message(
             embed=discord.Embed(description="⏳ กำลังตัดรอบ...", color=COLOR_WARN), view=None
         )
-        await interaction.client.get_cog("SchedulerCog").run_cutoff(manual=True)
+        try:
+            await interaction.client.get_cog("SchedulerCog").run_cutoff(manual=True)
+        except Exception as exc:  # noqa: BLE001 - แจ้งแอดมิน ไม่ให้ข้อความค้างที่ "กำลังตัดรอบ"
+            await interaction.edit_original_response(
+                embed=discord.Embed(description=f"❌ ตัดรอบไม่สำเร็จ ยังไม่ได้เริ่มรอบใหม่ ลองใหม่อีกครั้ง\n`{exc}`", color=COLOR_DANGER)
+            )
+            return
         await interaction.edit_original_response(
             embed=discord.Embed(description="✅ ตัดรอบเรียบร้อย ส่งสรุปเข้าห้องแอดมินแล้วค่ะ", color=COLOR_OK)
         )

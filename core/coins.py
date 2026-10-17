@@ -131,12 +131,13 @@ async def add(
     return await balance(db, user_id)
 
 
-async def earned_for_ref(db: Database, ref_prefix: str) -> list[dict]:
-    """ยอดสุทธิที่ได้ไปต่อคนจากรายการอ้างอิง (เช่น job:12) — ใช้ตอนดึงเหรียญคืน"""
+async def earned_for_ref(db: Database, ref: str) -> list[dict]:
+    """ยอดสุทธิที่ได้ไปต่อคนจากรายการอ้างอิง (เช่น job:12) — ใช้ตอนดึงเหรียญคืน
+    ต้องตรงกันพอดี (เดิมใช้ LIKE 'job:12%' ทำให้ยกเลิกบิล #12 ไปดึงเหรียญของบิล #120-129 ด้วย)"""
     return await db.fetchall(
-        "SELECT user_id, SUM(delta) AS total FROM coin_ledger WHERE ref LIKE ? AND kind IN ('EARN','REVOKE') "
-        "GROUP BY user_id HAVING SUM(delta) != 0",
-        (f"{ref_prefix}%",),
+        "SELECT user_id, SUM(delta) AS total FROM coin_ledger WHERE ref = ? AND kind IN ('EARN','REVOKE') "
+        "GROUP BY user_id HAVING SUM(delta) > 0",
+        (ref,),
     )
 
 

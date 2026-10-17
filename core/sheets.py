@@ -411,6 +411,9 @@ class SheetsClient:
         ]
         creds = Credentials.from_service_account_file(str(creds_file), scopes=scopes)
         self._client = gspread.authorize(creds)
+        # ไม่ให้คำขอที่ค้างทำให้ลูปบอทหยุด (gspread ค่าเริ่มต้นรอได้ไม่มีกำหนด) — เกินเวลา = ล้มแล้วลองใหม่ภายหลัง
+        if hasattr(self._client, "set_timeout"):
+            self._client.set_timeout(30)
         self._spreadsheet = self._client.open_by_key(self.cfg.get("google_sheets.spreadsheet_id"))
 
     # ------------------------------------------------------------- helpers
@@ -477,8 +480,13 @@ class SheetsClient:
         if before:
             ws.update(values=[[f"='{before[-1]}'!{BALANCE_CELL}"]], range_name="T2", value_input_option="USER_ENTERED")
         else:
-            keep = opening if opening not in (None, "") and not str(opening).startswith("='Day_") else 0
-            ws.update(values=[[keep]], range_name="T2", value_input_option="USER_ENTERED")
+            keep = opening if opening not in (None, "") and not str(opening).startswith("='Day_") else None
+            if keep is None and after:
+                # แท็บนี้กลายเป็นวันแรกสุด (คีย์ย้อนหลังก่อนวันแรกเดิม) — ย้ายยอดตั้งต้นที่แอดมินพิมพ์ไว้มาที่นี่
+                old_first = self._spreadsheet.worksheet(after[0]).acell("T2", value_render_option="FORMULA").value
+                if old_first not in (None, "") and not str(old_first).startswith("="):
+                    keep = old_first
+            ws.update(values=[[keep if keep is not None else 0]], range_name="T2", value_input_option="USER_ENTERED")
         if after:
             self._spreadsheet.worksheet(after[0]).update(
                 values=[[f"='{ws.title}'!{BALANCE_CELL}"]], range_name="T2", value_input_option="USER_ENTERED"

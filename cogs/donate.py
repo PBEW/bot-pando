@@ -332,7 +332,7 @@ class DonateCog(commands.Cog):
         limit = dt.timedelta(minutes=self.expire_minutes)
         now = now_utc()
         for job in await self.db.jobs_by_status(["ACCEPTED"]):
-            if job["job_type"] != "DONATE" or job.get("slip_url"):
+            if job["job_type"] != "DONATE":  # ACCEPTED = ยังไม่กดส่งสลิป (อัปรูปแล้วไม่กดยืนยัน ก็หมดเวลาเหมือนกัน)
                 continue
             if now - from_iso(job["created_at"]) < limit:
                 continue

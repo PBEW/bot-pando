@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 
 from core.vip_logic import shop_day_start
 from core.cycle import cycle_start_local, cycle_title, next_cutoff_local
-from core.embeds import COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
+from core.embeds import split_embed, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import job_staff_ids, job_staff_split
 from core.utils import (
     discord_ts,
@@ -113,8 +113,8 @@ class SchedulerCog(commands.Cog):
 
             if now >= end and not job["review_sent"]:
                 await self.db.update_job(job["id"], review_sent=1)
-                if job["status"] == "PAID":
-                    await self.db.update_job(job["id"], status="COMPLETED")
+                # เปลี่ยนเฉพาะบิลที่ยัง PAID อยู่จริง (ถ้าแอดมินเพิ่งยกเลิก จะไม่ถูกดึงกลับมาเป็นรายได้)
+                if job["status"] == "PAID" and await self.db.claim_job(job["id"], ["PAID"], status="COMPLETED"):
                     if job["job_type"] == "NORMAL":
                         reviews = self.bot.get_cog("ReviewsCog")
                         await reviews.send_review_invite(job)
@@ -187,7 +187,10 @@ class SchedulerCog(commands.Cog):
             return
         vip = self.bot.get_cog("VipCog")
         for record in expired:
-            await vip.expire_pass(record)
+            try:
+                await vip.expire_pass(record)
+            except Exception:  # noqa: BLE001 - คนหนึ่งพังต้องไม่ทำให้คนที่เหลือในคิวค้าง
+                log.exception("ถอดสิทธิ์ VIP ของ %s ไม่สำเร็จ", record["user_id"])
 
     # ------------------------------------------------------------ ตัดรอบ
     async def check_cutoff(self) -> None:
@@ -209,8 +212,10 @@ class SchedulerCog(commands.Cog):
         return await self._period_start(cycle_start_local(now_local, self.cfg))
 
     async def _period_start(self, default_start: dt.datetime) -> dt.datetime:
+        """เริ่มรอบที่จุดตัดยอดครั้งล่าสุดเสมอ (ถ้ามี) — เดิมใช้ max(ค่าคำนวณ, ล่าสุด) ทำให้เปลี่ยนวันตัดยอดกลางรอบ
+        แล้วช่วงระหว่างจุดตัดล่าสุดกับวันตัดใหม่ไม่ถูกสรุปเลย (พนักงานไม่ได้ยอดช่วงนั้น)"""
         last = await self._last_cut_at()
-        return max(default_start, last) if last else default_start
+        return last if last else default_start
 
     async def run_cutoff(self, now_local: dt.datetime | None = None, *, manual: bool = False) -> discord.Embed:
         """ตัดยอด: อัตโนมัติ = สรุปรอบที่เพิ่งจบ · manual = สรุปตั้งแต่ตัดครั้งล่าสุดถึงตอนนี้ แล้วเริ่มนับใหม่จากตอนนี้"""
@@ -226,13 +231,8 @@ class SchedulerCog(commands.Cog):
         period_start = min(period_start, period_end)
 
         summary = await self.build_summary(period_start, period_end)
-        await self.db.set_meta("last_cut_at", to_iso(period_end))
-
         new_title = cycle_title(self.cfg, now_local)
         created = await self.bot.sheets.create_cycle_sheet(new_title)
-        await self.db.set_meta("current_cycle", new_title)
-        if not manual:
-            await self.db.set_meta("last_cutoff", current_start.date().isoformat())
 
         summary.add_field(
             name="📄 ชีตรอบใหม่",
@@ -245,18 +245,26 @@ class SchedulerCog(commands.Cog):
             inline=False,
         )
 
+        # ส่งสรุปให้สำเร็จก่อน แล้วค่อยบันทึกว่าตัดรอบแล้ว — ส่งไม่ได้ = ลองใหม่รอบลูปถัดไป ไม่ทำสรุปยอดโอนหาย
         payments = self.bot.get_cog("PaymentsCog")
-        await payments.notify_admin(embed=summary)
+        for part in split_embed(summary):
+            if await payments.notify_admin(embed=part) is None:
+                raise RuntimeError("ส่งสรุปตัดรอบเข้าห้องแอดมินไม่สำเร็จ (ไม่พบห้องแอดมิน)")
+        await self.db.set_meta("last_cut_at", to_iso(period_end))
+        await self.db.set_meta("current_cycle", new_title)
+        if not manual:
+            await self.db.set_meta("last_cutoff", current_start.date().isoformat())
 
         attendance = self.bot.get_cog("AttendanceCog")
         if attendance is not None:
             hours_embed = await attendance.build_hours_summary(period_start, period_end)
-            await payments.notify_admin(embed=hours_embed)
+            for part in split_embed(hours_embed):
+                await payments.notify_admin(embed=part)
         log.info("ตัดรอบเรียบร้อย -> %s", new_title)
         return summary
 
     async def build_summary(self, start_local: dt.datetime, end_local: dt.datetime) -> discord.Embed:
-        jobs = await self.db.jobs_paid_between(to_iso(start_local), to_iso(end_local))
+        jobs = await self.db.jobs_for_period(to_iso(start_local), to_iso(end_local))
         total_in = sum(j["total_price"] for j in jobs)
         total_out = sum(j["staff_share"] for j in jobs)
         total_shop = sum(j["shop_share"] for j in jobs)

@@ -170,3 +170,19 @@ def payment_embed(cfg: Config, *, title: str, description: str, amount: float) -
 
     embed.set_footer(text=cfg.get("payment.note", "ส่งภาพสลิปกลับมาที่ DM นี้ได้เลยค่ะ"))
     return embed
+
+
+def split_embed(embed: discord.Embed, *, max_chars: int = 5500, max_fields: int = 25) -> list[discord.Embed]:
+    """แบ่ง embed ที่ยาวเกินลิมิต Discord (6000 ตัวอักษร / 25 field) เป็นหลายอัน — ส่งต่อกันได้ไม่ error"""
+    if len(embed) <= max_chars and len(embed.fields) <= max_fields:
+        return [embed]
+    fields = [(f.name, f.value, f.inline) for f in embed.fields]  # copy() ใช้ list field ร่วมกัน ต้องเก็บไว้ก่อน
+    first = discord.Embed.from_dict({k: v for k, v in embed.to_dict().items() if k != "fields"})
+    parts = [first]
+    for name, value, inline in fields:
+        cur = parts[-1]
+        if len(cur) + len(name) + len(value) > max_chars or len(cur.fields) >= max_fields:
+            cur = discord.Embed(title=f"{embed.title or ''} (ต่อ)"[:256], color=embed.color)
+            parts.append(cur)
+        cur.add_field(name=name, value=value, inline=inline)
+    return parts

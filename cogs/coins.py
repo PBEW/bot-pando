@@ -242,7 +242,11 @@ class AdjustModal(discord.ui.Modal, title="ปรับเหรียญ"):
             return
         member, cog = self.view.member, self.view.cog
         reason = str(self.reason.value).strip()
-        await cog._change(member.id, amount, "ADMIN", reason, by=interaction.user.id)
+        with busy(f"coins:{member.id}") as ok:  # กันส่งฟอร์มซ้ำแล้วปรับ 2 ครั้ง
+            if not ok:
+                await interaction.response.send_message(BUSY_TEXT, ephemeral=True)
+                return
+            await cog._change(member.id, amount, "ADMIN", reason, by=interaction.user.id)
         await cog._notify_admin(f"🪙 {interaction.user.mention} ปรับเหรียญ {member.mention} {amount:+,} · {reason}")
         await self.view.rerender(interaction, member)
 
@@ -665,11 +669,53 @@ class CoinsCog(commands.Cog):
         self.db = bot.db
         self._sheet_tasks: set[asyncio.Task] = set()
 
+    async def cog_load(self) -> None:
+        await self._refund_wrong_revokes()
+
+    async def _refund_wrong_revokes(self) -> None:
+        """คืนเหรียญที่เคยถูกดึงเกิน (บั๊กเดิม: ยกเลิกบิล #12 ดึงเหรียญของบิล #120-129 ไปด้วย) — ทำครั้งเดียว
+        ต่อคนต่อบิล: ถ้ายอด EARN + REVOKE ของบิลนั้นติดลบ แปลว่าโดนดึงเกินที่ได้รับจริง → คืนส่วนที่ติดลบ"""
+        if await self.db.get_meta("fix:coin_revoke_like"):
+            return
+        rows = await self.db.fetchall(
+            "SELECT user_id, ref, SUM(delta) AS net FROM coin_ledger "
+            "WHERE ref LIKE 'job:%' AND kind IN ('EARN','REVOKE') GROUP BY user_id, ref HAVING SUM(delta) < 0"
+        )
+        total = 0
+        for row in rows:
+            amount = -int(row["net"])
+            await coins.add(self.db, row["user_id"], amount, "ADMIN",
+                            f"คืนเหรียญที่ถูกดึงเกิน ({row['ref']})", ref=f"{row['ref']}:refund")
+            total += amount
+        await self.db.set_meta("fix:coin_revoke_like", to_iso(now_utc()))
+        if rows:
+            log.warning("คืนเหรียญที่ถูกดึงเกิน %d รายการ รวม %d เหรียญ", len(rows), total)
+            text = f"🪙 คืนเหรียญที่ระบบเคยดึงเกินจากบั๊กยกเลิกบิล {len(rows)} รายการ รวม {total:,} เหรียญ"
+            task = asyncio.create_task(self._notify_when_ready(text))
+            self._sheet_tasks.add(task)
+            task.add_done_callback(self._sheet_tasks.discard)
+
+    async def _notify_when_ready(self, text: str) -> None:
+        await self.bot.wait_until_ready()
+        await self._notify_admin(text)
+
     # -------------------------------------------------------- helpers
     async def _notify_admin(self, text: str) -> None:
+        """แจ้งห้องแอดมินแบบเบื้องหลัง — ไม่ให้ปุ่ม/ฟอร์มตอบ Discord เกิน 3 วินาที
+        (เดิมรอส่งก่อนตอบ ถ้าช้า แอดมินเห็น "interaction failed" แล้วกดซ้ำ เหรียญถูกปรับ 2 ครั้ง)"""
         payments = self.bot.get_cog("PaymentsCog")
-        if payments is not None:
-            await payments.notify_admin_text(text)
+        if payments is None:
+            return
+
+        async def send() -> None:
+            try:
+                await payments.notify_admin_text(text)
+            except Exception:  # noqa: BLE001
+                log.exception("แจ้งห้องแอดมิน (เหรียญ) ไม่สำเร็จ")
+
+        task = asyncio.create_task(send())
+        self._sheet_tasks.add(task)
+        task.add_done_callback(self._sheet_tasks.discard)
 
     async def _change(self, user_id: int, delta: int, kind: str, reason: str, *, ref: str | None = None, by: int | None = None) -> int:
         new_balance = await coins.add(self.db, user_id, delta, kind, reason, ref=ref, by=by)
