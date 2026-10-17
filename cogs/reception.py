@@ -28,7 +28,6 @@ from core.utils import (
     is_admin,
     is_reception,
     money,
-    staff_members,
     now_utc,
     parse_start_time,
     purge_old_panels,
@@ -250,27 +249,13 @@ class OpenBillWizard(discord.ui.View):
         )
         staff_hint = " (เลือกได้หลายคน)" if max_staff > 1 else ""
 
-        # เลือกได้เฉพาะพนักงานที่กดเข้างานอยู่ตอนนี้ (ยังไม่ออกงาน) — today ส่งมาจาก open_bill_panel
-        guild = getattr(opener, "guild", None)
-        if backfill:  # ย้อนหลัง: พนักงานอาจออกงานไปแล้ว ให้เลือกได้ทุกคนที่มี Role พนักงาน
-            staff = staff_members(guild, self.cfg.staff_role_ids)[:25]
-        else:
-            staff = [m for m in (guild.get_member(uid) for uid in self.today) if m is not None and not m.bot][:25] if guild else []
-        self.staff_select = discord.ui.Select(
-            placeholder=f"💃 เลือกพนักงาน{'' if backfill else 'ที่เข้างานอยู่'}{staff_hint}",
+        # เมนูเลือกสมาชิกของ Discord พิมพ์ค้นหาชื่อได้ (เมนูรายการปกติแสดงได้แค่ 25 คนและค้นหาไม่ได้)
+        # ตรวจตอนเลือกว่าเป็นพนักงานที่เข้างานอยู่ (บิลย้อนหลัง = มี Role พนักงาน) — รายชื่อคนเข้างานแสดงในกล่องด้านบน
+        self.staff_select = discord.ui.UserSelect(
+            placeholder=f"💃 พิมพ์ค้นหาพนักงาน{'' if backfill else 'ที่เข้างานอยู่'}{staff_hint}",
             min_values=1,
-            max_values=max(1, min(max_staff, len(staff))),
+            max_values=max(1, min(max_staff, 25)),
             row=1,
-            options=[
-                discord.SelectOption(
-                    label=m.display_name[:100],
-                    value=str(m.id),
-                    emoji="🟢" if m.id in self.today else "⚪",
-                    description=self._staff_hint(m.id),
-                )
-                for m in staff
-            ] or [discord.SelectOption(label="ยังไม่มีพนักงาน", value="none")],
-            disabled=not staff,
         )
         self.staff_select.callback = self._on_staff
         self.add_item(self.staff_select)
@@ -460,7 +445,22 @@ class OpenBillWizard(discord.ui.View):
         return [k for k in self.service_keys if (self.cfg.service(k) or {}).get("per_unit")]
 
     async def _on_staff(self, interaction: discord.Interaction) -> None:
-        self.staff_ids = [int(v) if isinstance(v, str) else v.id for v in self.staff_select.values]
+        picked = list(self.staff_select.values)
+        if self.backfill:
+            allowed = set(self.cfg.staff_role_ids)
+            bad = [m for m in picked if getattr(m, "bot", False) or (
+                allowed and not any(r.id in allowed for r in getattr(m, "roles", []))
+            )]
+            why = "ไม่ใช่พนักงาน (ไม่มี Role พนักงาน)"
+        else:
+            bad = [m for m in picked if m.id not in self.today]
+            why = "ยังไม่ได้กดเข้างาน / ออกงานแล้ว"
+        if bad:
+            await interaction.response.send_message(
+                f"⚠️ {' '.join(m.mention for m in bad)} {why} — เลือกใหม่อีกครั้งค่ะ", ephemeral=True
+            )
+            return
+        self.staff_ids = [m.id for m in picked]
         await self._refresh(interaction)
 
     async def _on_services(self, interaction: discord.Interaction) -> None:
@@ -551,6 +551,17 @@ class OpenBillWizard(discord.ui.View):
             value=" ".join(f"<@{s}>" for s in self.staff_ids) if self.staff_ids else "*ยังไม่เลือก*",
             inline=True,
         )
+        if not self.staff_ids and self.today:
+            # รายชื่อคนที่เข้างานอยู่ (เมนูเลือกเป็นช่องค้นหา จึงแสดงรายชื่อ + งานที่รับไว้ตรงนี้แทน)
+            lines, used = [], 0
+            for sid in self.today:
+                line = f"🟢 <@{sid}> · {self._staff_hint(sid)}"
+                if used + len(line) > 980:
+                    lines.append(f"… และอีก {len(self.today) - len(lines)} คน (พิมพ์ชื่อค้นหาในช่องเลือกพนักงาน)")
+                    break
+                lines.append(line)
+                used += len(line) + 1
+            embed.add_field(name=f"🟢 เข้างานอยู่ตอนนี้ ({len(self.today)} คน)", value="\n".join(lines), inline=False)
         embed.add_field(
             name="🚪 ห้อง",
             value=self.cfg.room_name(self.room_key) if self.room_key else ("*ยังไม่เลือก*" if need_room else "ไม่ต้องใช้ห้อง"),
