@@ -1,6 +1,7 @@
 """ระบบ VIP Self-Service: ซื้อ / ต่ออายุ / อัปเกรด / ตรวจสอบสิทธิ์ (multi-tier: Lace, Desire, Obsession)"""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import logging
 import json
@@ -12,7 +13,7 @@ from discord.ext import commands
 
 from core.embeds import COLOR_DANGER, COLOR_GOLD, COLOR_INFO, COLOR_OK, COLOR_WARN, dm_embed
 from core.pricing import apply_discount
-from core.utils import BUSY_TEXT, busy, fmt_datetime, from_iso, is_admin, money, now_utc, send_dm, to_iso
+from core.utils import BUSY_TEXT, busy, display_name, fmt_datetime, from_iso, is_admin, money, now_utc, send_dm, to_iso
 from core.vip_logic import (
     DEFAULT_VIP_BENEFITS,
     DEFAULT_VIP_DATE_SERVICE,
@@ -259,6 +260,56 @@ class VipCog(commands.Cog):
         self.bot = bot
         self.cfg = bot.cfg
         self.db = bot.db
+        self._sheet_task: asyncio.Task | None = None
+
+    # ------------------------------------------------- แท็บสมาชิก VIP (Sheets)
+    def schedule_vip_sheet(self) -> None:
+        """อัปเดตแท็บ "สมาชิก VIP" แบบเบื้องหลัง (ไม่ให้ปุ่ม/ลูปรอ Google Sheets) — เปลี่ยนติดกันหลายครั้งเขียนรอบเดียว"""
+        if not self.bot.sheets.ready or (self._sheet_task and not self._sheet_task.done()):
+            return
+        self._sheet_task = asyncio.create_task(self._sync_vip_sheet_later())
+
+    async def _sync_vip_sheet_later(self) -> None:
+        await asyncio.sleep(5)  # รวมการเปลี่ยนที่เกิดติดกันให้เขียนครั้งเดียว
+        try:
+            await self.sync_vip_sheet()
+        except Exception:  # noqa: BLE001
+            log.exception("อัปเดตแท็บสมาชิก VIP ไม่สำเร็จ")
+
+    async def sync_vip_sheet(self) -> int:
+        """เขียนแท็บ "สมาชิก VIP" ใหม่ทั้งแท็บจากฐานข้อมูล — คืนจำนวนสมาชิก"""
+        if not self.bot.sheets.ready:
+            return 0
+        tz = self.cfg.tz
+        now = now_utc()
+        guild = self.bot.get_guild(self.cfg.guild_id)
+        records = await self.db.vip_sheet_rows()
+
+        def sort_key(r: dict):
+            exp = from_iso(r["expires_at"])
+            return (0, exp) if exp and exp > now else (1, -(from_iso(r.get("expired_at") or r["expires_at"]) or now).timestamp())
+
+        rows = []
+        for r in sorted(records, key=sort_key):
+            exp = from_iso(r["expires_at"])
+            active = bool(exp and exp > now)
+            shown = exp or from_iso(r.get("expired_at"))
+            pkg = self.cfg.vip_package(r["package_key"]) if r.get("package_key") else None
+            rows.append([
+                await display_name(self.bot, guild, r["user_id"]),
+                f"'{r['user_id']}",
+                self.cfg.vip_tier_name(r["tier"]) if r.get("tier") else "-",
+                pkg["name"] if pkg else ("มอบโดยแอดมิน / อัปเกรด" if r.get("tier") else "-"),
+                "🟢 ใช้งานอยู่" if active else "⚪ หมดอายุ",
+                fmt_datetime(shown, tz) if shown else "-",
+                -(-int((exp - now).total_seconds()) // 86400) if active else 0,  # ปัดขึ้น: เหลือ 4 วันกว่า = 5
+                int(r.get("streak_months") or 0),
+                int(r.get("orders") or 0),
+                float(r.get("spent") or 0),
+                fmt_datetime(from_iso(r["last_paid"]), tz) if r.get("last_paid") else "-",
+            ])
+        await self.bot.sheets.write_vip_rows(rows)
+        return len(rows)
 
     # --------------------------------------------------------------- ร้าน
     async def cog_load(self) -> None:
@@ -428,6 +479,7 @@ class VipCog(commands.Cog):
             expires_iso,
             now_iso,
         )
+        self.schedule_vip_sheet()
         return new_expiry_local, new_streak, role_note, tier_cfg
 
     # ---------------------------------------------------- ยืนยันสลิป -> role
@@ -590,6 +642,7 @@ class VipCog(commands.Cog):
             expires_iso,
             now_iso,
         )
+        self.schedule_vip_sheet()
 
         await send_dm(
             self.bot,
@@ -637,10 +690,11 @@ class VipCog(commands.Cog):
 
         # เคลียร์ expires_at เพื่อไม่ให้ loop ตรวจซ้ำ แต่เก็บ tier ไว้อ้างอิงประวัติ และรีเซ็ตเดือนสะสม
         await self.db.execute(
-            "UPDATE vip_members SET expires_at = NULL, streak_months = 0, updated_at = ? "
+            "UPDATE vip_members SET expired_at = expires_at, expires_at = NULL, streak_months = 0, updated_at = ? "
             "WHERE user_id = ?",
             (to_iso(now_utc()), record["user_id"]),
         )
+        self.schedule_vip_sheet()
         await send_dm(
             self.bot,
             record["user_id"],

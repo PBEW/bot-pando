@@ -571,6 +571,10 @@ class PaymentsCog(commands.Cog):
             return
         if job.get("sheet_logged"):
             return
+        if not job.get("total_price") and not job.get("staff_share"):
+            # บิล 0 บาทที่ไม่มีส่วนแบ่ง (เช่น VIP Free Date) ไม่ลงชีต — ไม่ให้เกิดแท็บวันที่ไม่มีรายได้
+            await self.db.update_job(job["id"], sheet_logged=1)
+            return
 
         tz = self.cfg.tz
         guild = self.bot.get_guild(job["guild_id"])

@@ -114,6 +114,12 @@ ATTENDANCE_HEADERS = [
     "หมายเหตุ",     # H
 ]
 
+VIP_SHEET = "สมาชิก VIP"
+VIP_HEADERS = [
+    "ลูกค้า", "ID", "ระดับ", "แพ็กเกจล่าสุด", "สถานะ", "หมดอายุ", "เหลือ (วัน)",
+    "เดือนสะสม", "ซื้อแล้ว (ครั้ง)", "💰 ยอดซื้อรวม", "ซื้อล่าสุด",
+]
+
 # ---------------------------------------------------------------- สี
 PURPLE = "#6A1B9A"
 PURPLE_DARK = "#4A148C"
@@ -293,6 +299,37 @@ def withdraw_style_requests(sheet_id: int) -> list[dict]:
     return reqs
 
 
+def vip_style_requests(sheet_id: int) -> list[dict]:
+    gold = "#B8860B"
+    reqs: list[dict] = [
+        {"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+        _row_height(sheet_id, 0, 36),
+        _cell(sheet_id, 0, 1, 0, 11, _header_fmt(gold)),
+        _cell(sheet_id, 1, None, 0, 1, {"textFormat": {"bold": True}}),
+        _cell(sheet_id, 1, None, 4, 5, {"horizontalAlignment": "CENTER"}),
+        _cell(sheet_id, 1, None, 6, 9, {"horizontalAlignment": "CENTER"}),
+        _cell(sheet_id, 1, None, 9, 10, {"numberFormat": {"type": "NUMBER", "pattern": MONEY},
+                                         "backgroundColor": _rgb(GREEN_LIGHT), "textFormat": {"bold": True}}),
+        # ใช้งานอยู่ = เหลืองทอง · ใกล้หมด (≤ 7 วัน) = ส้ม
+        {"addConditionalFormatRule": {"index": 0, "rule": {
+            "ranges": [_range(sheet_id, 1, None, 0, 11)],
+            "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": '=AND($E2="🟢 ใช้งานอยู่",$G2<=7)'}]},
+                            "format": {"backgroundColor": _rgb(ORANGE_LIGHT)}}}}},
+        {"addConditionalFormatRule": {"index": 1, "rule": {
+            "ranges": [_range(sheet_id, 1, None, 0, 11)],
+            "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": '=$E2="🟢 ใช้งานอยู่"'}]},
+                            "format": {"backgroundColor": _rgb("#FFF8E1")}}}}},
+        {"setBasicFilter": {"filter": {"range": _range(sheet_id, 0, None, 0, 11)}}},
+    ]
+    widths = {0: 170, 2: 120, 3: 170, 4: 110, 5: 140, 6: 80, 7: 80, 8: 90, 9: 120, 10: 140}
+    reqs += [_width(sheet_id, col, px) for col, px in widths.items()]
+    reqs.append(_hide(sheet_id, 1))
+    return reqs
+
+
 def attendance_style_requests(sheet_id: int) -> list[dict]:
     reqs: list[dict] = [
         {"updateSheetProperties": {
@@ -428,7 +465,8 @@ class SheetsClient:
         try:
             return self._spreadsheet.worksheet(title)
         except gspread.WorksheetNotFound:
-            ws = self._spreadsheet.add_worksheet(title=title, rows=500, cols=26)
+            # แท็บรายวันมีบิลไม่กี่สิบแถว — เริ่ม 100 แถว (เต็มแล้วบอทเพิ่มให้เอง) ประหยัดโควตาเซลล์ของไฟล์
+            ws = self._spreadsheet.add_worksheet(title=title, rows=100 if title.startswith("Day_") else 500, cols=26)
             self._init_ws(ws)
             return ws
 
@@ -595,11 +633,15 @@ class SheetsClient:
         assert self._spreadsheet is not None
         self._withdraw_ws().append_row(row, value_input_option="USER_ENTERED", table_range="A1")
         # ชีตรอบที่สร้างก่อนมีระบบเบิกเงินยังไม่มีแถวเบิก/คงเหลือ — เติมให้ (ไม่ต้องรอสั่ง /sheets_format)
-        for title in (str(row[8]), str(row[9])):  # แท็บสัปดาห์ + แท็บรายวัน
-            try:
-                cycle_ws = self._spreadsheet.worksheet(title)
-            except gspread.WorksheetNotFound:
-                continue
+        for title in dict.fromkeys((str(row[8]), str(row[9]))):  # แท็บสัปดาห์ + แท็บรายวัน
+            if title.startswith("Day_"):
+                # วันที่มีแต่เบิกเงิน (ไม่มีบิล) ก็ต้องมีแท็บ ไม่งั้นยอดคงเหลือสะสมไม่ถูกหัก
+                cycle_ws = self._get_or_create_ws(title)
+            else:
+                try:
+                    cycle_ws = self._spreadsheet.worksheet(title)
+                except gspread.WorksheetNotFound:
+                    continue
             if not cycle_ws.acell("Q6").value:
                 cycle_ws.update(values=[summary_block(title)[5]], range_name="Q6", value_input_option="USER_ENTERED")
 
@@ -740,14 +782,78 @@ class SheetsClient:
         done.append(WITHDRAW_SHEET)
         self._init_payout_ws(self._payout_ws())
         done.append(PAYOUT_SHEET)
-        self._init_ws(self._get_or_create_ws(cycle_title))
-        done.append(cycle_title)
-        if day_title and day_title != cycle_title:  # โหมดรายวัน: แท็บรอบ = แท็บรายวัน ไม่ต้องทำซ้ำ
-            self._init_ws(self._get_or_create_ws(day_title))
-            done.append(day_title)
+        existing = {ws.title: ws for ws in self._spreadsheet.worksheets()}
+        # จัดเฉพาะแท็บรอบ/วันที่มีอยู่แล้ว — ไม่สร้างแท็บเปล่า (แท็บรายวันเกิดเมื่อมีบิลแรกของวันนั้น)
+        for title in dict.fromkeys(t for t in (cycle_title, day_title) if t):
+            if title in existing:
+                self._init_ws(existing[title])
+                done.append(title)
+        removed = self._cleanup_empty_days_sync()
+        if removed:
+            done.append(f"ลบแท็บรายวันที่ไม่มีรายได้ {removed} แท็บ")
         self._init_attendance_ws(self._attendance_ws())
         done.append(ATTENDANCE_SHEET)
         return done
+
+    def _cleanup_empty_days_sync(self) -> int:
+        """ลบแท็บ Day_ ที่ไม่มีบิลเลย แล้วต่อสายยอดยกมาใหม่ (ยอดตั้งต้นของแท็บแรกย้ายไปแท็บแรกที่เหลือ)
+        ใช้คำขอแบบรวมชุด (batch) ไม่กี่ครั้ง ไม่ว่าจะมีกี่แท็บ"""
+        assert self._spreadsheet is not None
+        days = sorted((ws for ws in self._spreadsheet.worksheets() if ws.title.startswith("Day_")), key=lambda w: w.title)
+        if not days:
+            return 0
+        got = self._spreadsheet.values_batch_get(
+            [f"'{w.title}'!A2:A3" for w in days] + [f"'{w.title}'!T2" for w in days],
+            params={"valueRenderOption": "FORMULA"},
+        ).get("valueRanges", [])
+        has_rows = [bool(r.get("values")) for r in got[: len(days)]]
+        # วันที่มีเบิกเงิน (คอลัมน์ J แท็บเบิกเงิน = วันทำงาน) ถือว่ามีความเคลื่อนไหว ไม่ลบ
+        try:
+            withdraw_days = set(self._spreadsheet.worksheet(WITHDRAW_SHEET).col_values(10))
+        except Exception:  # noqa: BLE001 - ยังไม่มีแท็บเบิกเงิน
+            withdraw_days = set()
+        has_rows = [rows or w.title in withdraw_days for w, rows in zip(days, has_rows)]
+        t2 = [((r.get("values") or [[None]])[0] or [None])[0] for r in got[len(days):]]
+        opening = t2[0] if t2 and t2[0] not in (None, "") and not str(t2[0]).startswith("=") else None
+        empty = [w for w, rows in zip(days, has_rows) if not rows]
+        if not empty:
+            return 0
+        self._spreadsheet.batch_update({"requests": [{"deleteSheet": {"sheetId": w.id}} for w in empty]})
+        keep = [w for w, rows in zip(days, has_rows) if rows]
+        data = []
+        for i, w in enumerate(keep):
+            value = f"='{keep[i - 1].title}'!{BALANCE_CELL}" if i else (opening if opening is not None else 0)
+            data.append({"range": f"'{w.title}'!T2", "values": [[value]]})
+        if data:
+            self._spreadsheet.values_batch_update({"valueInputOption": "USER_ENTERED", "data": data})
+        return len(empty)
+
+    # ------------------------------------------------------ สมาชิก VIP
+    async def write_vip_rows(self, rows: list[list]) -> bool:
+        """เขียนแท็บสมาชิก VIP ใหม่ทั้งแท็บ (สมาชิกไม่เยอะ เขียนทับง่ายและข้อมูลตรงกับบอทเสมอ)"""
+        if not self.ready:
+            return False
+        async with self._lock:
+            try:
+                await asyncio.to_thread(self._write_vip_sync, rows)
+                return True
+            except Exception:  # noqa: BLE001
+                log.exception("เขียนแท็บสมาชิก VIP ไม่สำเร็จ")
+                return False
+
+    def _write_vip_sync(self, rows: list[list]) -> None:
+        import gspread
+
+        assert self._spreadsheet is not None
+        try:
+            ws = self._spreadsheet.worksheet(VIP_SHEET)
+        except gspread.WorksheetNotFound:
+            ws = self._spreadsheet.add_worksheet(title=VIP_SHEET, rows=max(len(rows) + 50, 100), cols=len(VIP_HEADERS))
+            self._spreadsheet.batch_update({"requests": self._clear_conditional_rules(ws.id) + vip_style_requests(ws.id)})
+        if ws.row_count < len(rows) + 2:
+            ws.add_rows(len(rows) + 50 - ws.row_count)
+        ws.batch_clear([f"A2:K{ws.row_count}"])
+        ws.update(values=[VIP_HEADERS, *rows], range_name="A1", value_input_option="USER_ENTERED")
 
     async def spreadsheet_url(self) -> str | None:
         if not self.ready:

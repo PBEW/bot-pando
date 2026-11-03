@@ -271,6 +271,10 @@ class Database:
             columns = {row[1] for row in await cur.fetchall()}
         if "prefs" not in columns:
             await self.conn.execute("ALTER TABLE attendance ADD COLUMN prefs TEXT")
+        async with self.conn.execute("PRAGMA table_info(vip_members)") as cur:
+            columns = {row[1] for row in await cur.fetchall()}
+        if "expired_at" not in columns:  # วันหมดอายุล่าสุด (เก็บไว้แสดงในชีต หลังบอทเคลียร์ expires_at ตอนหมดอายุ)
+            await self.conn.execute("ALTER TABLE vip_members ADD COLUMN expired_at TEXT")
 
     async def close(self) -> None:
         if self.conn is not None:
@@ -484,6 +488,14 @@ class Database:
 
     async def update_vip_order(self, order_id: int, **fields: Any) -> None:
         await self._update("vip_orders", order_id, fields)
+
+    async def vip_sheet_rows(self) -> list[dict]:
+        """ข้อมูลสมาชิก VIP ทุกคน + ยอดซื้อรวม (สำหรับแท็บสมาชิก VIP ใน Google Sheets)"""
+        return await self.fetchall(
+            "SELECT m.*, COUNT(o.id) AS orders, COALESCE(SUM(o.total_price), 0) AS spent, MAX(o.paid_at) AS last_paid "
+            "FROM vip_members m LEFT JOIN vip_orders o ON o.customer_id = m.user_id AND o.status = 'ACTIVE' "
+            "GROUP BY m.user_id"
+        )
 
     async def upsert_vip_member(
         self,
