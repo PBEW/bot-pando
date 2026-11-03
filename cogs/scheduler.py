@@ -232,11 +232,16 @@ class SchedulerCog(commands.Cog):
 
         summary = await self.build_summary(period_start, period_end)
         new_title = cycle_title(self.cfg, now_local)
-        created = await self.bot.sheets.create_cycle_sheet(new_title)
+        if is_daily(self.cfg):
+            # รายวัน: ไม่สร้างแท็บล่วงหน้า — แท็บ Day_ เกิดเมื่อมีบิลแรกของวัน (วันไม่มีรายได้ = ไม่มีแท็บ)
+            created = self.bot.sheets.ready
+        else:
+            created = await self.bot.sheets.create_cycle_sheet(new_title)
 
         summary.add_field(
             name="📄 ชีตรอบใหม่",
-            value=f"`{new_title}`" + ("" if created else " *(ยังไม่ได้เปิดใช้ Google Sheets)*"),
+            value=f"`{new_title}`" + (" (สร้างเมื่อมีบิลแรก)" if is_daily(self.cfg) else "")
+            + ("" if created else " *(ยังไม่ได้เปิดใช้ Google Sheets)*"),
             inline=False,
         )
         summary.add_field(

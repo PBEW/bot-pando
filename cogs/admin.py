@@ -102,6 +102,10 @@ class AdminCog(commands.Cog):
         backfilled = await self.bot.get_cog("PaymentsCog").backfill_sheet()
         url = await self.bot.sheets.spreadsheet_url()
         extra = f"\n📥 เติมบิลที่ตกหล่นลงชีต {backfilled} ใบ" if backfilled else ""
+        vip = self.bot.get_cog("VipCog")
+        if vip is not None:
+            members = await vip.sync_vip_sheet()
+            extra += f"\n💎 อัปเดตแท็บสมาชิก VIP {members} คน"
         await interaction.followup.send(
             embed=discord.Embed(
                 description=f"✅ จัดรูปแบบแล้ว: {', '.join(f'`{t}`' for t in done)}{extra}\n{url}",
